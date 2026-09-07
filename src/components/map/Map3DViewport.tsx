@@ -408,16 +408,19 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
     }
 
     const coords = selectedRoute.fullGeometry;
+    if (!coords || coords.length < 2) return;
+
     const totalSegments = coords.length - 1;
-    const clampedProgress = Math.min(1.0, Math.max(0, simulationProgress));
-    const targetIdx = Math.min(
-      totalSegments - 1,
-      Math.floor(clampedProgress * totalSegments)
+    const clampedProgress = Math.min(1.0, Math.max(0, Number.isFinite(simulationProgress) ? simulationProgress : 0));
+    const targetIdx = Math.max(
+      0,
+      Math.min(totalSegments - 1, Math.floor(clampedProgress * totalSegments))
     );
-    const fraction = (clampedProgress * totalSegments) - targetIdx;
+    const fraction = Math.max(0, Math.min(1, (clampedProgress * totalSegments) - targetIdx));
 
     const p1 = coords[targetIdx];
     const p2 = coords[Math.min(targetIdx + 1, totalSegments)];
+    if (!p1 || !p2) return;
 
     const curLng = p1[0] + (p2[0] - p1[0]) * fraction;
     const curLat = p1[1] + (p2[1] - p1[1]) * fraction;
