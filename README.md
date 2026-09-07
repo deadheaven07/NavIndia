@@ -130,5 +130,3 @@ npx vitest run
 
 ---
 
-## 📄 License
-MIT License. Crafted with precision for Indian Urban Mobility.
