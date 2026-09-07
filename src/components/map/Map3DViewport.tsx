@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import type { Feature, LineString } from 'geojson';
 import type { Coordinates, RouteOption, TransitNode } from '../../algorithms/types';
-import { generateBengaluru3DBuildings } from '../../algorithms/data/bengaluru-network';
+import { generateBengaluru3DBuildings } from '../../algorithms/data/bengaluru-network-scaled';
 import {
   Layers,
   Compass,
@@ -10,14 +10,25 @@ import {
   Moon,
   Train,
   Car,
+  Zap,
 } from 'lucide-react';
+
+function round5(num: number): number {
+  return Math.round(num * 100000) / 100000;
+}
 
 interface Map3DViewportProps {
   nodes: TransitNode[];
   selectedRoute: RouteOption | null;
   originNode: TransitNode | null;
   destNode: TransitNode | null;
+  originCoord?: Coordinates | null;
+  destCoord?: Coordinates | null;
   onMapCoordinateClick: (coord: Coordinates) => void;
+  onPinDrag?: (target: 'ORIGIN' | 'DESTINATION', coord: Coordinates) => void;
+  pinTargetMode: 'ORIGIN' | 'DESTINATION';
+  onTogglePinTargetMode: () => void;
+  isCalculating?: boolean;
   simulationProgress: number; // 0 to 1
   isSimulating: boolean;
   isDarkMode: boolean;
@@ -29,7 +40,13 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
   selectedRoute,
   originNode,
   destNode,
+  originCoord,
+  destCoord,
   onMapCoordinateClick,
+  onPinDrag,
+  pinTargetMode,
+  onTogglePinTargetMode,
+  isCalculating = false,
   simulationProgress,
   isSimulating,
   isDarkMode,
@@ -263,7 +280,7 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
       features: [lineFeature],
     });
 
-    // Dynamic Camera Fly-To
+    // Dynamic Camera Framing with left offset for HUD deck
     const coords = selectedRoute.fullGeometry;
     let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
     for (const [lng, lat] of coords) {
@@ -273,22 +290,18 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
       if (lat > maxLat) maxLat = lat;
     }
 
-    const centerLng = (minLng + maxLng) / 2;
-    const centerLat = (minLat + maxLat) / 2;
-
-    map.flyTo({
-      center: [centerLng, centerLat],
-      zoom: 12.8,
-      pitch: cameraMode === 'PLAN' ? 0 : cameraMode === 'CHASE' ? 75 : 62,
-      bearing: cameraMode === 'PLAN' ? 0 : -25,
-      speed: 0.9,
-      curve: 1.4,
+    const bounds = new maplibregl.LngLatBounds([minLng, minLat], [maxLng, maxLat]);
+    map.fitBounds(bounds, {
+      padding: { top: 120, bottom: 80, left: 470, right: 80 },
+      pitch: cameraMode === 'PLAN' ? 0 : cameraMode === 'CHASE' ? 70 : 58,
+      bearing: cameraMode === 'PLAN' ? 0 : -22,
+      duration: 1200,
+      maxZoom: 14.5,
       essential: true,
-      easing: (t: number) => t * (2 - t),
     });
   }, [selectedRoute, cameraMode, isMapReady]);
 
-  // Update Node Markers on the Map with Metro Badges
+  // Update Node Markers on the Map with Metro Badges & Draggable Origin/Dest Pins
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -296,59 +309,88 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
 
-    // Add Markers for Origin and Destination
-    if (originNode) {
+    const effectiveOriginCoord: Coordinates | null =
+      originCoord || (originNode ? originNode.coordinates : null);
+    const effectiveDestCoord: Coordinates | null =
+      destCoord || (destNode ? destNode.coordinates : null);
+
+    // 1. Add Draggable Marker for Origin (Green)
+    if (effectiveOriginCoord) {
       const originEl = document.createElement('div');
-      originEl.className = 'flex flex-col items-center cursor-pointer group pointer-events-auto';
+      originEl.className = 'flex flex-col items-center cursor-grab active:cursor-grabbing group pointer-events-auto select-none';
       originEl.innerHTML = `
         <div class="px-2 py-0.5 rounded-full bg-emerald-600 text-white font-extrabold text-[10px] shadow-md mb-1 flex items-center gap-1 border border-white">
-          <span>ORIGIN</span>
+          <span>ORIGIN (DRAG)</span>
         </div>
         <div class="relative flex items-center justify-center">
           <div class="absolute w-7 h-7 rounded-full bg-emerald-500/30 animate-ping"></div>
           <div class="w-5 h-5 rounded-full bg-emerald-600 border-2 border-white shadow-md flex items-center justify-center text-white font-bold text-[9px]">A</div>
         </div>
       `;
-      const marker = new maplibregl.Marker({ element: originEl })
-        .setLngLat(originNode.coordinates)
+      const originMarker = new maplibregl.Marker({ element: originEl, draggable: true })
+        .setLngLat(effectiveOriginCoord)
         .addTo(map);
-      markersRef.current.push(marker);
+
+      originMarker.on('dragend', () => {
+        const lngLat = originMarker.getLngLat();
+        onPinDrag?.('ORIGIN', [round5(lngLat.lng), round5(lngLat.lat)]);
+      });
+
+      markersRef.current.push(originMarker);
     }
 
-    if (destNode) {
+    // 2. Add Draggable Marker for Destination (Sky / Rose)
+    if (effectiveDestCoord) {
       const destEl = document.createElement('div');
-      destEl.className = 'flex flex-col items-center cursor-pointer group pointer-events-auto';
+      destEl.className = 'flex flex-col items-center cursor-grab active:cursor-grabbing group pointer-events-auto select-none';
       destEl.innerHTML = `
-        <div class="px-2 py-0.5 rounded-full bg-sky-600 text-white font-extrabold text-[10px] shadow-md mb-1 flex items-center gap-1 border border-white">
-          <span>DEST</span>
+        <div class="px-2 py-0.5 rounded-full bg-rose-600 text-white font-extrabold text-[10px] shadow-md mb-1 flex items-center gap-1 border border-white">
+          <span>DEST (DRAG)</span>
         </div>
         <div class="relative flex items-center justify-center">
-          <div class="absolute w-7 h-7 rounded-full bg-sky-500/30 animate-ping"></div>
-          <div class="w-5 h-5 rounded-full bg-sky-600 border-2 border-white shadow-md flex items-center justify-center text-white font-bold text-[9px]">B</div>
+          <div class="absolute w-7 h-7 rounded-full bg-rose-500/30 animate-ping"></div>
+          <div class="w-5 h-5 rounded-full bg-rose-600 border-2 border-white shadow-md flex items-center justify-center text-white font-bold text-[9px]">B</div>
         </div>
       `;
-      const marker = new maplibregl.Marker({ element: destEl })
-        .setLngLat(destNode.coordinates)
+      const destMarker = new maplibregl.Marker({ element: destEl, draggable: true })
+        .setLngLat(effectiveDestCoord)
         .addTo(map);
-      markersRef.current.push(marker);
+
+      destMarker.on('dragend', () => {
+        const lngLat = destMarker.getLngLat();
+        onPinDrag?.('DESTINATION', [round5(lngLat.lng), round5(lngLat.lat)]);
+      });
+
+      markersRef.current.push(destMarker);
     }
 
-    // Metro station and junction pill markers
-    nodes.forEach((node) => {
-      if (node.id === originNode?.id || node.id === destNode?.id) return;
+    // 3. Render Primary Metro Station & Landmark Hub Markers (filter ~80 nodes to preserve 60 FPS)
+    const primaryHubs = nodes.filter((n) => n.type === 'METRO_STATION' || n.type === 'LANDMARK');
+
+    primaryHubs.forEach((node) => {
+      // Avoid duplicating marker directly under origin or destination
+      if (
+        (originNode && node.id === originNode.id) ||
+        (destNode && node.id === destNode.id)
+      ) {
+        return;
+      }
 
       const isMetro = node.type === 'METRO_STATION';
       const el = document.createElement('div');
 
       if (isMetro) {
-        el.className = 'px-1.5 py-0.5 rounded-full bg-white/95 dark:bg-slate-900 border border-sky-400 dark:border-cyan-500 text-[10px] font-bold text-sky-800 dark:text-cyan-300 shadow-md flex items-center gap-1 cursor-pointer hover:scale-110 transition-transform';
+        el.className = 'px-1.5 py-0.5 rounded-full bg-white/95 dark:bg-slate-900 border border-sky-400 dark:border-cyan-500 text-[10px] font-bold text-sky-800 dark:text-cyan-300 shadow-md flex items-center gap-1 cursor-pointer hover:scale-110 transition-transform select-none';
         el.innerHTML = `
-          <span class="w-2 h-2 rounded-full bg-purple-600 inline-block"></span>
+          <span class="w-2 h-2 rounded-full ${node.metroLine === 'GREEN' ? 'bg-emerald-600' : 'bg-purple-600'} inline-block"></span>
           <span class="whitespace-nowrap">${node.name.split(' ')[0]}</span>
         `;
       } else {
-        el.className = 'w-2.5 h-2.5 rounded-full bg-slate-400 border border-white hover:scale-150 transition-transform cursor-pointer shadow-sm';
-        el.title = `${node.name} (${node.zone})`;
+        el.className = 'px-1.5 py-0.5 rounded-full bg-slate-800 text-white border border-slate-600 text-[9px] font-bold shadow-sm flex items-center gap-1 cursor-pointer hover:scale-110 transition-transform select-none';
+        el.innerHTML = `
+          <span class="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block"></span>
+          <span class="whitespace-nowrap">${node.name.split(' ')[0]}</span>
+        `;
       }
 
       el.onclick = (e: globalThis.MouseEvent) => {
@@ -361,7 +403,7 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
         .addTo(map);
       markersRef.current.push(marker);
     });
-  }, [nodes, originNode, destNode]);
+  }, [nodes, originNode, destNode, originCoord, destCoord, onPinDrag, onMapCoordinateClick]);
 
   // Simulation Vehicle Gliding Marker with Directional Bearing
   const lastCameraFollowRef = useRef<number>(0);
@@ -579,11 +621,32 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
         </div>
       </div>
 
-      {/* Interactive Helper Overlay Tip (Bottom Center) */}
-      <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
-        <div className="glass-panel px-4 py-1.5 rounded-full text-xs text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-2 font-medium">
-          <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse"></span>
-          <span>Click anywhere on 3D map to snap GPS coordinates using 2D KD-Tree</span>
+      {/* Interactive Helper Overlay Tip & Pin Target Selector (Bottom Center) */}
+      <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-10 pointer-events-auto flex items-center gap-2">
+        <div className="glass-panel px-4 py-1.5 rounded-full text-xs text-slate-700 dark:text-slate-200 border border-slate-200/90 dark:border-slate-800 shadow-md flex items-center gap-2.5 font-medium backdrop-blur-xl">
+          <div className="flex items-center gap-1.5">
+            {isCalculating ? (
+              <Zap className="w-3.5 h-3.5 text-amber-500 animate-spin" />
+            ) : (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            )}
+            <span className="text-[11px] font-semibold">
+              {isCalculating ? 'Computing Pareto routes via Web Worker...' : 'Click map to snap GPS junction & route'}
+            </span>
+          </div>
+          <span className="text-slate-300 dark:text-slate-700">|</span>
+          <button
+            type="button"
+            onClick={onTogglePinTargetMode}
+            className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold transition-all border ${
+              pinTargetMode === 'DESTINATION'
+                ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800 hover:bg-rose-100'
+                : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100'
+            }`}
+            title="Click to toggle whether map clicks update Origin or Destination"
+          >
+            Clicking Sets: {pinTargetMode === 'DESTINATION' ? 'DESTINATION (B)' : 'ORIGIN (A)'}
+          </button>
         </div>
       </div>
     </div>

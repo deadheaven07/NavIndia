@@ -1,15 +1,12 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
-  BENGALURU_NODES,
-  buildBengaluruTransitGraph,
-} from './algorithms/data/bengaluru-network';
-import { SpatialKDTree } from './algorithms/kdtree';
-import { ParetoFrontierSolver } from './algorithms/pareto';
+  PRIMARY_TRANSIT_HUBS,
+} from './algorithms/data/bengaluru-network-scaled';
 import type {
   Coordinates,
   RouteOption,
-  RouteComputationTelemetry,
 } from './algorithms/types';
+import { useRoutingWorker } from './hooks/useRoutingWorker';
 import { Map3DViewport } from './components/map/Map3DViewport';
 import { HUDDeck } from './components/hud/HUDDeck';
 import { LatencyHUD } from './components/hud/LatencyHUD';
@@ -26,61 +23,59 @@ export function App() {
     }
   }, [isDarkMode]);
 
-  // Graph and KD-Tree instances (memoized for performance)
+  // Traffic / Peak hour state
   const [isPeakHour, setIsPeakHour] = useState<boolean>(false);
 
-  const graph = useMemo(() => {
-    const g = buildBengaluruTransitGraph();
-    // If peak hour is enabled, increase traffic multipliers on road edges
-    if (isPeakHour) {
-      for (const edge of g.getAllEdges()) {
-        if (edge.mode === 'CAB' || edge.mode === 'AUTO' || edge.mode === 'BUS') {
-          edge.trafficMultiplier = (edge.trafficMultiplier || 1.2) * 1.55;
-        }
-      }
-    }
-    return g;
-  }, [isPeakHour]);
+  // Dedicated Web Worker Hook for Graph building, KD-Tree Snapping & Pareto A* Routing
+  const {
+    isReady,
+    isCalculating,
+    routes,
+    selectedRoute,
+    telemetry,
+    graphStats,
+    snappedOrigin,
+    snappedDest,
+    error: routingError,
+    calculateRoute,
+    setSelectedRoute,
+  } = useRoutingWorker();
 
-  const kdTree = useMemo(() => new SpatialKDTree(BENGALURU_NODES), []);
-  const paretoSolver = useMemo(() => new ParetoFrontierSolver(graph, kdTree), [graph, kdTree]);
-  const graphStats = useMemo(() => graph.getStats(), [graph]);
+  // Origin & Destination targets (can be either node ID string or raw [lng, lat] Coordinates)
+  const [originTarget, setOriginTarget] = useState<string | Coordinates>('majestic');
+  const [destTarget, setDestTarget] = useState<string | Coordinates>('whitefield_itpl');
+  const [customOriginCoord, setCustomOriginCoord] = useState<Coordinates | null>(null);
+  const [customDestCoord, setCustomDestCoord] = useState<Coordinates | null>(null);
 
-  // Routing State
-  const [originNodeId, setOriginNodeId] = useState<string>('majestic');
-  const [destNodeId, setDestNodeId] = useState<string>('whitefield_itpl');
-  const [routes, setRoutes] = useState<RouteOption[]>([]);
-  const [selectedRoute, setSelectedRoute] = useState<RouteOption | null>(null);
-  const [telemetry, setTelemetry] = useState<RouteComputationTelemetry | null>(null);
+  // Pin click mode: clicking on the 3D map canvas sets Origin or Destination
+  const [pinTargetMode, setPinTargetMode] = useState<'ORIGIN' | 'DESTINATION'>('DESTINATION');
 
   // 3D Path Simulation State
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
   const [simulationProgress, setSimulationProgress] = useState<number>(0);
   const simulationRef = useRef<number | null>(null);
 
-  // Compute Pareto Routes whenever origin, destination, or traffic multiplier changes
-  const computeRoutes = useCallback(() => {
-    if (!originNodeId || !destNodeId) return;
-
-    const result = paretoSolver.planRoutes(originNodeId, destNodeId);
-    if (result && result.routes.length > 0) {
-      setRoutes(result.routes);
-      setTelemetry(result.telemetry);
-
-      // Select Smart Multi-Modal by default if available, otherwise first
-      const smartRoute = result.routes.find((r) => r.archetype === 'SMART_MULTIMODAL');
-      const targetRoute = smartRoute || result.routes[0];
-      setSelectedRoute(targetRoute);
-      setSimulationProgress(0);
-      setIsSimulating(false);
+  // Trigger initial route calculation once Web Worker finishes instantiation
+  useEffect(() => {
+    if (isReady) {
+      calculateRoute(originTarget, destTarget, isPeakHour);
     }
-  }, [originNodeId, destNodeId, paretoSolver]);
+  }, [isReady]);
+
+  // Sync custom coordinates with snapped nodes once worker responds
+  useEffect(() => {
+    if (snappedOrigin && !customOriginCoord) {
+      setCustomOriginCoord(snappedOrigin.coordinates);
+    }
+  }, [snappedOrigin]);
 
   useEffect(() => {
-    computeRoutes();
-  }, [computeRoutes]);
+    if (snappedDest && !customDestCoord) {
+      setCustomDestCoord(snappedDest.coordinates);
+    }
+  }, [snappedDest]);
 
-  // Robust Simulation Animation Loop
+  // Simulation Animation Loop
   useEffect(() => {
     if (!isSimulating) {
       if (simulationRef.current) {
@@ -91,7 +86,7 @@ export function App() {
     }
 
     let lastTime = performance.now();
-    const speed = 0.08; // Completes full trajectory in ~12.5 seconds
+    const speed = 0.08; // Full trajectory traversal in ~12.5 seconds
 
     const loop = (now: number) => {
       const delta = Math.min((now - lastTime) / 1000, 0.1);
@@ -126,11 +121,9 @@ export function App() {
     };
   }, [isSimulating]);
 
-  // Robust Toggle Simulation (Rewinds to start if previously finished)
   const handleToggleSimulation = useCallback(() => {
     setIsSimulating((prevSim) => {
       if (!prevSim) {
-        // If restarting after reaching the end, rewind immediately to 0
         setSimulationProgress((prevProg) => (prevProg >= 0.98 ? 0 : prevProg));
         return true;
       }
@@ -143,41 +136,123 @@ export function App() {
     setSimulationProgress(0);
   }, []);
 
-  // Handle Map Coordinate Click: Snap to closest node via KD-Tree
-  const handleMapCoordinateClick = (coord: Coordinates) => {
-    const snapResult = kdTree.findNearest(coord);
-    const clickedNodeId = snapResult.node.id;
+  // Handle arbitrary 3D Map Canvas Click
+  // Dispatches directly to Web Worker: KD-Tree snaps in O(log N) and re-routes without dropping a frame
+  const handleMapCoordinateClick = useCallback(
+    (coord: Coordinates) => {
+      if (pinTargetMode === 'ORIGIN') {
+        setCustomOriginCoord(coord);
+        setOriginTarget(coord);
+        calculateRoute(coord, destTarget, isPeakHour);
+      } else {
+        setCustomDestCoord(coord);
+        setDestTarget(coord);
+        calculateRoute(originTarget, coord, isPeakHour);
+      }
+      setSimulationProgress(0);
+      setIsSimulating(false);
+    },
+    [pinTargetMode, originTarget, destTarget, isPeakHour, calculateRoute]
+  );
 
-    if (clickedNodeId === originNodeId) {
-      return;
+  // Handle dragging Origin or Destination pin directly on the MapLibre canvas
+  const handlePinDrag = useCallback(
+    (target: 'ORIGIN' | 'DESTINATION', coord: Coordinates) => {
+      if (target === 'ORIGIN') {
+        setCustomOriginCoord(coord);
+        setOriginTarget(coord);
+        calculateRoute(coord, destTarget, isPeakHour);
+      } else {
+        setCustomDestCoord(coord);
+        setDestTarget(coord);
+        calculateRoute(originTarget, coord, isPeakHour);
+      }
+      setSimulationProgress(0);
+      setIsSimulating(false);
+    },
+    [originTarget, destTarget, isPeakHour, calculateRoute]
+  );
+
+  // Handle Origin selection from HUD dropdown or quick corridors
+  const handleOriginChange = useCallback(
+    (nodeId: string) => {
+      setCustomOriginCoord(null);
+      setOriginTarget(nodeId);
+      calculateRoute(nodeId, destTarget, isPeakHour);
+      setSimulationProgress(0);
+      setIsSimulating(false);
+    },
+    [destTarget, isPeakHour, calculateRoute]
+  );
+
+  // Handle Destination selection from HUD dropdown or quick corridors
+  const handleDestChange = useCallback(
+    (nodeId: string) => {
+      setCustomDestCoord(null);
+      setDestTarget(nodeId);
+      calculateRoute(originTarget, nodeId, isPeakHour);
+      setSimulationProgress(0);
+      setIsSimulating(false);
+    },
+    [originTarget, isPeakHour, calculateRoute]
+  );
+
+  // Swap Origin and Destination
+  const handleSwapNodes = useCallback(() => {
+    const nextOriginTarget = destTarget;
+    const nextDestTarget = originTarget;
+    const nextOriginCoord = customDestCoord;
+    const nextDestCoord = customOriginCoord;
+
+    setOriginTarget(nextOriginTarget);
+    setDestTarget(nextDestTarget);
+    setCustomOriginCoord(nextOriginCoord);
+    setCustomDestCoord(nextDestCoord);
+
+    calculateRoute(nextOriginTarget, nextDestTarget, isPeakHour);
+    setSimulationProgress(0);
+    setIsSimulating(false);
+  }, [originTarget, destTarget, customOriginCoord, customDestCoord, isPeakHour, calculateRoute]);
+
+  // Toggle Peak Hour congestion multiplier and recalculate
+  const handleTogglePeakHour = useCallback(() => {
+    const nextPeak = !isPeakHour;
+    setIsPeakHour(nextPeak);
+    calculateRoute(originTarget, destTarget, nextPeak);
+  }, [isPeakHour, originTarget, destTarget, calculateRoute]);
+
+  // Combined nodes for HUD dropdowns: primary metro/landmark hubs + snapped custom points
+  const hudNodes = useMemo(() => {
+    const base = [...PRIMARY_TRANSIT_HUBS];
+    if (snappedOrigin && !base.some((n) => n.id === snappedOrigin.id)) {
+      base.unshift(snappedOrigin);
     }
-    setDestNodeId(clickedNodeId);
-  };
+    if (snappedDest && !base.some((n) => n.id === snappedDest.id)) {
+      base.unshift(snappedDest);
+    }
+    return base;
+  }, [snappedOrigin, snappedDest]);
 
-  const handleSwapNodes = () => {
-    const temp = originNodeId;
-    setOriginNodeId(destNodeId);
-    setDestNodeId(temp);
-  };
-
-  const originNode = useMemo(
-    () => graph.getNode(originNodeId) || null,
-    [graph, originNodeId]
-  );
-  const destNode = useMemo(
-    () => graph.getNode(destNodeId) || null,
-    [graph, destNodeId]
-  );
+  const originId = typeof originTarget === 'string' ? originTarget : snappedOrigin?.id || 'origin_point';
+  const destId = typeof destTarget === 'string' ? destTarget : snappedDest?.id || 'dest_point';
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 select-none">
       {/* 3D Map Viewport Layer */}
       <Map3DViewport
-        nodes={BENGALURU_NODES}
+        nodes={PRIMARY_TRANSIT_HUBS}
         selectedRoute={selectedRoute}
-        originNode={originNode}
-        destNode={destNode}
+        originNode={snappedOrigin}
+        destNode={snappedDest}
+        originCoord={customOriginCoord}
+        destCoord={customDestCoord}
         onMapCoordinateClick={handleMapCoordinateClick}
+        onPinDrag={handlePinDrag}
+        pinTargetMode={pinTargetMode}
+        onTogglePinTargetMode={() =>
+          setPinTargetMode((prev) => (prev === 'DESTINATION' ? 'ORIGIN' : 'DESTINATION'))
+        }
+        isCalculating={isCalculating}
         simulationProgress={simulationProgress}
         isSimulating={isSimulating}
         isDarkMode={isDarkMode}
@@ -189,15 +264,15 @@ export function App() {
 
       {/* Navigation HUD Deck Cockpit */}
       <HUDDeck
-        nodes={BENGALURU_NODES}
-        originNodeId={originNodeId}
-        destNodeId={destNodeId}
-        onOriginChange={setOriginNodeId}
-        onDestChange={setDestNodeId}
+        nodes={hudNodes}
+        originNodeId={originId}
+        destNodeId={destId}
+        onOriginChange={handleOriginChange}
+        onDestChange={handleDestChange}
         onSwapNodes={handleSwapNodes}
         routes={routes}
         selectedRoute={selectedRoute}
-        onSelectRoute={(route) => {
+        onSelectRoute={(route: RouteOption) => {
           setSelectedRoute(route);
           setSimulationProgress(0);
           setIsSimulating(false);
@@ -207,8 +282,15 @@ export function App() {
         onResetSimulation={handleResetSimulation}
         simulationProgress={simulationProgress}
         isPeakHour={isPeakHour}
-        onTogglePeakHour={() => setIsPeakHour(!isPeakHour)}
+        onTogglePeakHour={handleTogglePeakHour}
       />
+
+      {/* Worker Error Notification Toast if any */}
+      {routingError && (
+        <div className="absolute top-20 right-4 z-50 glass-panel px-4 py-3 rounded-2xl border border-rose-300 dark:border-rose-900 bg-rose-50/90 dark:bg-rose-950/80 text-rose-800 dark:text-rose-200 shadow-xl max-w-sm">
+          <p className="text-xs font-bold">{routingError}</p>
+        </div>
+      )}
     </div>
   );
 }
