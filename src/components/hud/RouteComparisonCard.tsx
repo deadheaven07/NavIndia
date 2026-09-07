@@ -11,6 +11,8 @@ import {
   Flame,
   ArrowRight,
   TrendingDown,
+  Play,
+  Square,
 } from 'lucide-react';
 import type { RouteOption, TransitMode } from '../../algorithms/types';
 import { TransportLegBadge } from './TransportLegBadge';
@@ -19,12 +21,16 @@ interface RouteComparisonCardProps {
   route: RouteOption;
   isSelected: boolean;
   onSelect: (route: RouteOption) => void;
+  onToggleSimulation?: () => void;
+  isSimulating?: boolean;
 }
 
 export const RouteComparisonCard: React.FC<RouteComparisonCardProps> = ({
   route,
   isSelected,
   onSelect,
+  onToggleSimulation,
+  isSimulating = false,
 }) => {
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
 
@@ -200,6 +206,36 @@ export const RouteComparisonCard: React.FC<RouteComparisonCardProps> = ({
           </React.Fragment>
         ))}
       </div>
+
+      {/* 3D Flight Action Button for Active Selected Route */}
+      {isSelected && onToggleSimulation && (
+        <div className="mt-3 pt-2">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleSimulation();
+            }}
+            className={`w-full py-2.5 px-4 rounded-xl font-extrabold text-xs flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer ${
+              isSimulating
+                ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/25 ring-2 ring-amber-400/40'
+                : 'bg-sky-600 hover:bg-sky-500 text-white shadow-sky-600/25 hover:shadow-lg'
+            }`}
+          >
+            {isSimulating ? (
+              <>
+                <Square className="w-3.5 h-3.5 fill-current" />
+                <span>Pause 3D Flight</span>
+              </>
+            ) : (
+              <>
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span>Fly 3D Path</span>
+              </>
+            )}
+          </button>
+        </div>
+      )}
 
       {/* Expandable Detailed Step-by-Step Itinerary */}
       <div className="mt-3 pt-2.5 border-t border-slate-200/90 dark:border-slate-800/80">

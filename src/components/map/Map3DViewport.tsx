@@ -42,6 +42,7 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
   const animationFrameRef = useRef<number | null>(null);
 
   const [is3DBuildingsVisible, setIs3DBuildingsVisible] = useState<boolean>(true);
+  const [isMapReady, setIsMapReady] = useState<boolean>(false);
   const [currentPitch, setCurrentPitch] = useState<number>(60);
   const [currentBearing, setCurrentBearing] = useState<number>(-20);
   const [cameraMode, setCameraMode] = useState<'3D' | 'CHASE' | 'PLAN'>('3D');
@@ -203,18 +204,25 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
         },
       });
 
-      // Start Light-Trail Pulse Animation Loop
+      // Start Light-Trail Pulse Animation Loop (throttled to avoid GPU buffer thrashing)
       let step = 0;
-      const animateDashArray = () => {
-        step = (step + 0.08) % 12;
-        const dash1 = (step) % 8;
-        const dash2 = (step + 2) % 8;
-        if (map.getLayer('route-pulse-stream')) {
-          map.setPaintProperty('route-pulse-stream', 'line-dasharray', [dash1, dash2, 4]);
+      let lastDashTime = 0;
+      const animateDashArray = (time: number) => {
+        if (time - lastDashTime > 60) {
+          lastDashTime = time;
+          step = (step + 0.25) % 12;
+          const dash1 = (step) % 8;
+          const dash2 = (step + 2) % 8;
+          if (map.getLayer('route-pulse-stream')) {
+            map.setPaintProperty('route-pulse-stream', 'line-dasharray', [dash1, dash2, 4]);
+          }
         }
         animationFrameRef.current = requestAnimationFrame(animateDashArray);
       };
-      animateDashArray();
+      animationFrameRef.current = requestAnimationFrame(animateDashArray);
+
+      // Signal map is ready for dynamic layers and routes
+      setIsMapReady(true);
     });
 
     map.on('click', (e) => {
@@ -237,14 +245,19 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
     return () => {
       resizeObserver.disconnect();
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      if (simVehicleMarkerRef.current) {
+        simVehicleMarkerRef.current.remove();
+        simVehicleMarkerRef.current = null;
+      }
+      setIsMapReady(false);
       map.remove();
     };
   }, [isDarkMode]);
 
-  // Update Route Polyline & Dynamic Camera Fly-To when Selected Route Changes
+  // Update Route Polyline & Dynamic Camera Fly-To when Selected Route Changes or Map Becomes Ready
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map || !isMapReady) return;
 
     const source = map.getSource('route-light-trail-source') as maplibregl.GeoJSONSource;
     if (!source) return;
@@ -296,7 +309,7 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
       essential: true,
       easing: (t: number) => t * (2 - t),
     });
-  }, [selectedRoute, cameraMode]);
+  }, [selectedRoute, cameraMode, isMapReady]);
 
   // Update Node Markers on the Map with Metro Badges
   useEffect(() => {
@@ -374,29 +387,34 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
   }, [nodes, originNode, destNode]);
 
   // Simulation Vehicle Gliding Marker with Directional Bearing
+  const lastCameraFollowRef = useRef<number>(0);
+
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !selectedRoute || selectedRoute.fullGeometry.length < 2) return;
+    if (!map || !isMapReady || !selectedRoute || selectedRoute.fullGeometry.length < 2) return;
 
     if (!simVehicleMarkerRef.current) {
       const simEl = document.createElement('div');
       simEl.className = 'relative flex items-center justify-center';
       simEl.innerHTML = `
-        <div class="absolute w-10 h-10 rounded-full bg-sky-400/40 animate-ping"></div>
-        <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-sky-600 to-indigo-600 border-2 border-white shadow-xl flex items-center justify-center text-white font-black text-sm">
-          ➤
+        <div class="absolute w-12 h-12 rounded-full bg-sky-400/40 animate-ping pointer-events-none"></div>
+        <div class="sim-vehicle-icon w-8 h-8 rounded-full bg-gradient-to-tr from-sky-600 to-indigo-600 border-2 border-white shadow-xl flex items-center justify-center text-white font-black text-sm pointer-events-none transition-transform duration-75">
+          ▲
         </div>
       `;
-      simVehicleMarkerRef.current = new maplibregl.Marker({ element: simEl });
+      simVehicleMarkerRef.current = new maplibregl.Marker({ element: simEl })
+        .setLngLat(selectedRoute.fullGeometry[0])
+        .addTo(map);
     }
 
     const coords = selectedRoute.fullGeometry;
     const totalSegments = coords.length - 1;
+    const clampedProgress = Math.min(1.0, Math.max(0, simulationProgress));
     const targetIdx = Math.min(
       totalSegments - 1,
-      Math.floor(simulationProgress * totalSegments)
+      Math.floor(clampedProgress * totalSegments)
     );
-    const fraction = (simulationProgress * totalSegments) - targetIdx;
+    const fraction = (clampedProgress * totalSegments) - targetIdx;
 
     const p1 = coords[targetIdx];
     const p2 = coords[Math.min(targetIdx + 1, totalSegments)];
@@ -404,18 +422,34 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
     const curLng = p1[0] + (p2[0] - p1[0]) * fraction;
     const curLat = p1[1] + (p2[1] - p1[1]) * fraction;
 
-    simVehicleMarkerRef.current
-      .setLngLat([curLng, curLat])
-      .addTo(map);
+    // Calculate heading angle
+    const dLng = p2[0] - p1[0];
+    const dLat = p2[1] - p1[1];
+    const angleRad = Math.atan2(dLng, dLat); // Angle from North clockwise
+    const angleDeg = (angleRad * 180) / Math.PI;
 
-    if (isSimulating) {
-      map.easeTo({
-        center: [curLng, curLat],
-        duration: 200,
-        pitch: cameraMode === 'PLAN' ? 0 : cameraMode === 'CHASE' ? 75 : 65,
-      });
+    const markerEl = simVehicleMarkerRef.current.getElement();
+    const iconEl = markerEl?.querySelector('.sim-vehicle-icon') as HTMLElement | null;
+    if (iconEl) {
+      iconEl.style.transform = `rotate(${Math.round(angleDeg)}deg)`;
     }
-  }, [simulationProgress, selectedRoute, isSimulating, cameraMode]);
+
+    simVehicleMarkerRef.current.setLngLat([curLng, curLat]);
+
+    // Smooth camera tracking while simulating
+    if (isSimulating) {
+      const now = performance.now();
+      if (now - lastCameraFollowRef.current > 100) {
+        lastCameraFollowRef.current = now;
+        map.easeTo({
+          center: [curLng, curLat],
+          duration: 120,
+          pitch: cameraMode === 'PLAN' ? 0 : cameraMode === 'CHASE' ? 75 : 62,
+          easing: (t) => t,
+        });
+      }
+    }
+  }, [simulationProgress, selectedRoute, isSimulating, cameraMode, isMapReady]);
 
   const handleToggle3DBuildings = () => {
     const map = mapRef.current;

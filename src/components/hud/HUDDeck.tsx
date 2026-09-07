@@ -279,6 +279,8 @@ export const HUDDeck: React.FC<HUDDeckProps> = ({
                 route={route}
                 isSelected={selectedRoute?.id === route.id}
                 onSelect={onSelectRoute}
+                onToggleSimulation={onToggleSimulation}
+                isSimulating={isSimulating}
               />
             ))
           ) : (

@@ -80,28 +80,38 @@ export function App() {
     computeRoutes();
   }, [computeRoutes]);
 
-  // Simulation Animation Loop
+  // Robust Simulation Animation Loop
   useEffect(() => {
     if (!isSimulating) {
-      if (simulationRef.current) cancelAnimationFrame(simulationRef.current);
+      if (simulationRef.current) {
+        cancelAnimationFrame(simulationRef.current);
+        simulationRef.current = null;
+      }
       return;
     }
 
     let lastTime = performance.now();
-    const speed = 0.08; // Duration ~12 seconds to complete full route
+    const speed = 0.08; // Completes full trajectory in ~12.5 seconds
 
     const loop = (now: number) => {
-      const delta = (now - lastTime) / 1000;
+      const delta = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
 
+      let reachedEnd = false;
       setSimulationProgress((prev) => {
         const next = prev + speed * delta;
         if (next >= 1.0) {
-          setIsSimulating(false);
+          reachedEnd = true;
           return 1.0;
         }
         return next;
       });
+
+      if (reachedEnd) {
+        setIsSimulating(false);
+        simulationRef.current = null;
+        return;
+      }
 
       simulationRef.current = requestAnimationFrame(loop);
     };
@@ -109,9 +119,29 @@ export function App() {
     simulationRef.current = requestAnimationFrame(loop);
 
     return () => {
-      if (simulationRef.current) cancelAnimationFrame(simulationRef.current);
+      if (simulationRef.current) {
+        cancelAnimationFrame(simulationRef.current);
+        simulationRef.current = null;
+      }
     };
   }, [isSimulating]);
+
+  // Robust Toggle Simulation (Rewinds to start if previously finished)
+  const handleToggleSimulation = useCallback(() => {
+    setIsSimulating((prevSim) => {
+      if (!prevSim) {
+        // If restarting after reaching the end, rewind immediately to 0
+        setSimulationProgress((prevProg) => (prevProg >= 0.98 ? 0 : prevProg));
+        return true;
+      }
+      return false;
+    });
+  }, []);
+
+  const handleResetSimulation = useCallback(() => {
+    setIsSimulating(false);
+    setSimulationProgress(0);
+  }, []);
 
   // Handle Map Coordinate Click: Snap to closest node via KD-Tree
   const handleMapCoordinateClick = (coord: Coordinates) => {
@@ -173,11 +203,8 @@ export function App() {
           setIsSimulating(false);
         }}
         isSimulating={isSimulating}
-        onToggleSimulation={() => setIsSimulating(!isSimulating)}
-        onResetSimulation={() => {
-          setIsSimulating(false);
-          setSimulationProgress(0);
-        }}
+        onToggleSimulation={handleToggleSimulation}
+        onResetSimulation={handleResetSimulation}
         simulationProgress={simulationProgress}
         isPeakHour={isPeakHour}
         onTogglePeakHour={() => setIsPeakHour(!isPeakHour)}
