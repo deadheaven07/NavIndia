@@ -18,6 +18,56 @@ function round5(num: number): number {
   return Math.round(num * 100000) / 100000;
 }
 
+function getRouteGeoJSON(route: RouteOption | null): GeoJSON.FeatureCollection<GeoJSON.LineString> {
+  if (!route || route.fullGeometry.length < 2) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+
+  const modeColors: Record<string, string> = {
+    METRO: '#a855f7',
+    CAB: '#f59e0b',
+    AUTO: '#10b981',
+    BUS: '#06b6d4',
+    WALK: '#94a3b8',
+  };
+
+  if (route.legs && route.legs.length > 0) {
+    return {
+      type: 'FeatureCollection',
+      features: route.legs.map((leg, index) => ({
+        type: 'Feature',
+        properties: {
+          mode: leg.mode,
+          color: modeColors[leg.mode] || route.accentColor || '#06b6d4',
+          legIndex: index,
+        },
+        geometry: {
+          type: 'LineString',
+          coordinates: leg.pathCoordinates,
+        },
+      })),
+    };
+  }
+
+  return {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        properties: {
+          mode: 'MULTI',
+          color: route.accentColor || '#06b6d4',
+          legIndex: 0,
+        },
+        geometry: {
+          type: 'LineString',
+          coordinates: route.fullGeometry,
+        },
+      },
+    ],
+  };
+}
+
 interface Map3DViewportProps {
   nodes: TransitNode[];
   selectedRoute: RouteOption | null;
@@ -71,6 +121,7 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
   const odMarkersRef = useRef<{ origin?: maplibregl.Marker; dest?: maplibregl.Marker }>({});
   const simVehicleMarkerRef = useRef<maplibregl.Marker | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const currentStyleRef = useRef<string>('');
 
   const [is3DBuildingsVisible, setIs3DBuildingsVisible] = useState<boolean>(true);
   const [isNetworkGridVisible, setIsNetworkGridVisible] = useState<boolean>(true);
@@ -87,13 +138,220 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
     return selectedRoute.legs[legIdx];
   }, [selectedRoute, simulationProgress]);
 
+  // Setup all custom WebGL GPU layers (3D buildings, 1,500+ nodes, glowing route streams)
+  const setupCustomLayers = useCallback(
+    (map: maplibregl.Map, isDark: boolean) => {
+      try {
+        // A. 3D Extruded Buildings Layer
+        if (!map.getSource('3d-buildings-source')) {
+          const buildingsGeoJSON = generateBengaluru3DBuildings();
+          map.addSource('3d-buildings-source', {
+            type: 'geojson',
+            data: buildingsGeoJSON,
+          });
+        }
+
+        if (!map.getLayer('3d-buildings-extrusion')) {
+          map.addLayer({
+            id: '3d-buildings-extrusion',
+            type: 'fill-extrusion',
+            source: '3d-buildings-source',
+            layout: {
+              visibility: is3DBuildingsVisible ? 'visible' : 'none',
+            },
+            paint: {
+              'fill-extrusion-height': ['get', 'height'],
+              'fill-extrusion-base': ['get', 'base_height'],
+              'fill-extrusion-color': [
+                'interpolate',
+                ['linear'],
+                ['get', 'height'],
+                20, isDark ? '#1e293b' : '#cbd5e1',
+                50, isDark ? '#0284c7' : '#94a3b8',
+                80, isDark ? '#06b6d4' : '#38bdf8',
+                110, isDark ? '#38bdf8' : '#0284c7',
+              ],
+              'fill-extrusion-opacity': isDark ? 0.85 : 0.72,
+            },
+          });
+        } else {
+          map.setPaintProperty('3d-buildings-extrusion', 'fill-extrusion-color', [
+            'interpolate',
+            ['linear'],
+            ['get', 'height'],
+            20, isDark ? '#1e293b' : '#cbd5e1',
+            50, isDark ? '#0284c7' : '#94a3b8',
+            80, isDark ? '#06b6d4' : '#38bdf8',
+            110, isDark ? '#38bdf8' : '#0284c7',
+          ]);
+          map.setPaintProperty('3d-buildings-extrusion', 'fill-extrusion-opacity', isDark ? 0.85 : 0.72);
+        }
+
+        // B. GPU-Accelerated 1,500+ Node Network Grid (WebGL Circles - Tier 3)
+        if (!map.getSource('transit-nodes-source')) {
+          map.addSource('transit-nodes-source', {
+            type: 'geojson',
+            data: {
+              type: 'FeatureCollection',
+              features: nodes.map((n) => ({
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: n.coordinates },
+                properties: { id: n.id, name: n.name, type: n.type },
+              })),
+            },
+          });
+        } else {
+          const s = map.getSource('transit-nodes-source') as maplibregl.GeoJSONSource;
+          s.setData({
+            type: 'FeatureCollection',
+            features: nodes.map((n) => ({
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: n.coordinates },
+              properties: { id: n.id, name: n.name, type: n.type },
+            })),
+          });
+        }
+
+        if (!map.getLayer('transit-nodes-glow')) {
+          map.addLayer({
+            id: 'transit-nodes-glow',
+            type: 'circle',
+            source: 'transit-nodes-source',
+            layout: {
+              visibility: isNetworkGridVisible ? 'visible' : 'none',
+            },
+            paint: {
+              'circle-radius': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                11, 1.5,
+                13, 2.5,
+                15, 4.5,
+              ],
+              'circle-color': [
+                'match',
+                ['get', 'type'],
+                'METRO_STATION', '#a855f7',
+                'JUNCTION', isDark ? '#06b6d4' : '#0284c7',
+                isDark ? '#38bdf8' : '#0ea5e9',
+              ],
+              'circle-opacity': [
+                'interpolate',
+                ['linear'],
+                ['zoom'],
+                11, 0.35,
+                13, 0.65,
+                16, 0.9,
+              ],
+              'circle-stroke-width': 1,
+              'circle-stroke-color': isDark ? '#0ea5e9' : '#0284c7',
+              'circle-stroke-opacity': 0.4,
+            },
+          });
+        } else {
+          map.setPaintProperty('transit-nodes-glow', 'circle-color', [
+            'match',
+            ['get', 'type'],
+            'METRO_STATION', '#a855f7',
+            'JUNCTION', isDark ? '#06b6d4' : '#0284c7',
+            isDark ? '#38bdf8' : '#0ea5e9',
+          ]);
+          map.setPaintProperty('transit-nodes-glow', 'circle-stroke-color', isDark ? '#0ea5e9' : '#0284c7');
+        }
+
+        // C. Multi-Modal Laser Light-Trail Sources & Layers
+        if (!map.getSource('route-light-trail-source')) {
+          map.addSource('route-light-trail-source', {
+            type: 'geojson',
+            data: getRouteGeoJSON(selectedRoute),
+          });
+        } else {
+          const s = map.getSource('route-light-trail-source') as maplibregl.GeoJSONSource;
+          s.setData(getRouteGeoJSON(selectedRoute));
+        }
+
+        // Outer Neon Glow
+        if (!map.getLayer('route-glow-stream')) {
+          map.addLayer({
+            id: 'route-glow-stream',
+            type: 'line',
+            source: 'route-light-trail-source',
+            layout: { 'line-join': 'round', 'line-cap': 'round' },
+            paint: {
+              'line-color': ['get', 'color'],
+              'line-width': 14,
+              'line-opacity': isDark ? 0.35 : 0.25,
+              'line-blur': 6,
+            },
+          });
+        }
+
+        // Mode-Specific Solid Line
+        if (!map.getLayer('route-mode-stream')) {
+          map.addLayer({
+            id: 'route-mode-stream',
+            type: 'line',
+            source: 'route-light-trail-source',
+            layout: { 'line-join': 'round', 'line-cap': 'round' },
+            paint: {
+              'line-color': ['get', 'color'],
+              'line-width': 6,
+              'line-opacity': 0.95,
+            },
+          });
+        }
+
+        // White Center Laser Core
+        if (!map.getLayer('route-core-stream')) {
+          map.addLayer({
+            id: 'route-core-stream',
+            type: 'line',
+            source: 'route-light-trail-source',
+            layout: { 'line-join': 'round', 'line-cap': 'round' },
+            paint: {
+              'line-color': '#ffffff',
+              'line-width': 2.5,
+              'line-opacity': 0.98,
+            },
+          });
+        }
+
+        // Animated Pulse Stream
+        if (!map.getLayer('route-pulse-stream')) {
+          map.addLayer({
+            id: 'route-pulse-stream',
+            type: 'line',
+            source: 'route-light-trail-source',
+            layout: { 'line-join': 'round', 'line-cap': 'round' },
+            paint: {
+              'line-color': '#ffffff',
+              'line-width': 3,
+              'line-dasharray': [0, 4, 3],
+              'line-opacity': 0.9,
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('Transient error attaching custom layers:', err);
+      }
+    },
+    [nodes, selectedRoute, is3DBuildingsVisible, isNetworkGridVisible]
+  );
+
   // 1. Initialize MapLibre 3D Viewport with GPU WebGL layers
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
+    const initialStyle = isDarkMode
+      ? 'https://tiles.openfreemap.org/styles/dark'
+      : 'https://tiles.openfreemap.org/styles/positron';
+
+    currentStyleRef.current = initialStyle;
+
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: 'https://tiles.openfreemap.org/styles/dark',
+      style: initialStyle,
       center: [77.625, 12.965], // Center of Bengaluru transit corridor
       zoom: 12.5,
       pitch: 60,
@@ -104,148 +362,30 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
 
     map.on('load', () => {
-      // A. 3D Extruded Buildings Layer
-      const buildingsGeoJSON = generateBengaluru3DBuildings();
-      map.addSource('3d-buildings-source', {
-        type: 'geojson',
-        data: buildingsGeoJSON,
-      });
+      setupCustomLayers(map, isDarkMode);
 
-      map.addLayer({
-        id: '3d-buildings-extrusion',
-        type: 'fill-extrusion',
-        source: '3d-buildings-source',
-        paint: {
-          'fill-extrusion-height': ['get', 'height'],
-          'fill-extrusion-base': ['get', 'base_height'],
-          'fill-extrusion-color': [
-            'interpolate',
-            ['linear'],
-            ['get', 'height'],
-            20, '#1e293b',
-            50, '#0284c7',
-            80, '#06b6d4',
-            110, '#38bdf8',
-          ],
-          'fill-extrusion-opacity': 0.85,
-        },
-      });
-
-      // B. GPU-Accelerated 1,500+ Node Network Grid (WebGL Circles - Tier 3)
-      map.addSource('transit-nodes-source', {
-        type: 'geojson',
-        data: {
-          type: 'FeatureCollection',
-          features: [],
-        },
-      });
-
-      map.addLayer({
-        id: 'transit-nodes-glow',
-        type: 'circle',
-        source: 'transit-nodes-source',
-        paint: {
-          'circle-radius': [
-            'interpolate',
-            ['linear'],
-            ['zoom'],
-            11, 1.5,
-            13, 2.5,
-            15, 4.5,
-          ],
-          'circle-color': [
-            'match',
-            ['get', 'type'],
-            'METRO_STATION', '#a855f7',
-            'JUNCTION', '#06b6d4',
-            '#38bdf8',
-          ],
-          'circle-opacity': [
-            'interpolate',
-            ['linear'],
-            ['zoom'],
-            11, 0.25,
-            13, 0.55,
-            16, 0.85,
-          ],
-          'circle-stroke-width': 1,
-          'circle-stroke-color': '#0ea5e9',
-          'circle-stroke-opacity': 0.3,
-        },
-      });
-
-      // C. Multi-Modal Laser Light-Trail Sources & Layers
-      map.addSource('route-light-trail-source', {
-        type: 'geojson',
-        data: {
-          type: 'FeatureCollection',
-          features: [],
-        },
-      });
-
-      // Outer Neon Glow
-      map.addLayer({
-        id: 'route-glow-stream',
-        type: 'line',
-        source: 'route-light-trail-source',
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: {
-          'line-color': ['get', 'color'],
-          'line-width': 14,
-          'line-opacity': 0.35,
-          'line-blur': 6,
-        },
-      });
-
-      // Mode-Specific Solid Line
-      map.addLayer({
-        id: 'route-mode-stream',
-        type: 'line',
-        source: 'route-light-trail-source',
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: {
-          'line-color': ['get', 'color'],
-          'line-width': 6,
-          'line-opacity': 0.95,
-        },
-      });
-
-      // White Center Laser Core
-      map.addLayer({
-        id: 'route-core-stream',
-        type: 'line',
-        source: 'route-light-trail-source',
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: {
-          'line-color': '#ffffff',
-          'line-width': 2.5,
-          'line-opacity': 0.98,
-        },
-      });
-
-      // Animated Pulse Stream
-      map.addLayer({
-        id: 'route-pulse-stream',
-        type: 'line',
-        source: 'route-light-trail-source',
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: {
-          'line-color': '#ffffff',
-          'line-width': 3,
-          'line-dasharray': [0, 4, 3],
-          'line-opacity': 0.9,
-        },
-      });
-
-      // Pulse Animation Loop (throttled 60ms)
+      // Pulse Animation Loop (throttled 60ms with safe try/catch for style transitions)
       let step = 0;
       let lastTime = 0;
       const animateDash = (time: number) => {
         if (time - lastTime > 60) {
           lastTime = time;
           step = (step + 0.3) % 12;
-          if (map.getLayer('route-pulse-stream')) {
-            map.setPaintProperty('route-pulse-stream', 'line-dasharray', [step % 8, (step + 2) % 8, 4]);
+          try {
+            const currentMap = mapRef.current;
+            if (
+              currentMap &&
+              currentMap.isStyleLoaded() &&
+              currentMap.getLayer('route-pulse-stream')
+            ) {
+              currentMap.setPaintProperty('route-pulse-stream', 'line-dasharray', [
+                step % 8,
+                (step + 2) % 8,
+                4,
+              ]);
+            }
+          } catch {
+            // Ignore transient sprite/dashatlas initialization during style reloading
           }
         }
         animationFrameRef.current = requestAnimationFrame(animateDash);
@@ -280,23 +420,47 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
     };
   }, []);
 
-  // 2. Feed 1,500+ Nodes into GPU WebGL Source (Zero DOM Overload - Tier 3)
+  // 2. Dynamic Style Switching on isDarkMode Toggle
   useEffect(() => {
-    if (!mapRef.current || !isMapReady) return;
-    const source = mapRef.current.getSource('transit-nodes-source') as maplibregl.GeoJSONSource;
-    if (source && nodes.length > 0) {
-      source.setData({
-        type: 'FeatureCollection',
-        features: nodes.map((n) => ({
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: n.coordinates },
-          properties: { id: n.id, name: n.name, type: n.type },
-        })),
-      });
+    const map = mapRef.current;
+    if (!map || !isMapReady) return;
+
+    const targetStyle = isDarkMode
+      ? 'https://tiles.openfreemap.org/styles/dark'
+      : 'https://tiles.openfreemap.org/styles/positron';
+
+    if (currentStyleRef.current === targetStyle) return;
+    currentStyleRef.current = targetStyle;
+
+    map.setStyle(targetStyle);
+    map.once('style.load', () => {
+      setupCustomLayers(map, isDarkMode);
+    });
+  }, [isDarkMode, isMapReady, setupCustomLayers]);
+
+  // 3. Feed 1,500+ Nodes into GPU WebGL Source
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isMapReady) return;
+    try {
+      if (!map.isStyleLoaded()) return;
+      const source = map.getSource('transit-nodes-source') as maplibregl.GeoJSONSource;
+      if (source && nodes.length > 0) {
+        source.setData({
+          type: 'FeatureCollection',
+          features: nodes.map((n) => ({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: n.coordinates },
+            properties: { id: n.id, name: n.name, type: n.type },
+          })),
+        });
+      }
+    } catch {
+      // transient during style reload
     }
   }, [nodes, isMapReady]);
 
-  // 3. Render Curated Landmark Badges ONLY (Max 8 Hubs across entire Bengaluru - Tier 2)
+  // 4. Render Curated Landmark Badges ONLY (Max 8 Hubs across entire Bengaluru - Tier 2)
   useEffect(() => {
     if (!mapRef.current || !isMapReady) return;
 
@@ -310,12 +474,12 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
     landmarkNodes.forEach((node) => {
       const el = document.createElement('div');
       el.className =
-        'group flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900/85 backdrop-blur-md border border-cyan-500/40 shadow-lg shadow-cyan-950/50 cursor-pointer hover:border-cyan-400 hover:scale-105 transition-all select-none';
+        'group flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/90 dark:bg-slate-900/85 backdrop-blur-md border border-slate-300/80 dark:border-cyan-500/40 shadow-md shadow-slate-300/40 dark:shadow-cyan-950/50 cursor-pointer hover:border-sky-500 dark:hover:border-cyan-400 hover:scale-105 transition-all select-none';
       el.innerHTML = `
         <span class="w-2 h-2 rounded-full ${
-          node.type === 'METRO_STATION' ? 'bg-purple-400 shadow-purple-500/50' : 'bg-cyan-400 shadow-cyan-500/50'
+          node.type === 'METRO_STATION' ? 'bg-purple-600 dark:bg-purple-400 shadow-purple-500/50' : 'bg-sky-500 dark:bg-cyan-400 shadow-cyan-500/50'
         } shadow-sm"></span>
-        <span class="text-[11px] font-semibold text-slate-200 tracking-wide select-none">${node.name}</span>
+        <span class="text-[11px] font-semibold text-slate-800 dark:text-slate-200 tracking-wide select-none">${node.name}</span>
       `;
 
       el.addEventListener('click', (e) => {
@@ -329,9 +493,9 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
 
       landmarkMarkersRef.current.push(marker);
     });
-  }, [nodes, isMapReady, onMapCoordinateClick]);
+  }, [nodes, isMapReady, onMapCoordinateClick, isDarkMode]);
 
-  // 4. Render Explicit Origin (A - Emerald) & Destination (B - Rose) Interactive Draggable Pins (Tier 1)
+  // 5. Render Explicit Origin (A - Emerald) & Destination (B - Rose) Interactive Draggable Pins (Tier 1)
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !isMapReady) return;
@@ -348,11 +512,11 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
       const el = document.createElement('div');
       el.className = 'flex flex-col items-center cursor-grab active:cursor-grabbing group pointer-events-auto select-none -translate-y-4';
       el.innerHTML = `
-        <div class="flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-950/95 border border-emerald-400/80 shadow-xl shadow-emerald-950/80 text-[11px] font-bold text-emerald-300">
-          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <div class="flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-600 dark:bg-emerald-950/95 border border-white dark:border-emerald-400/80 shadow-xl text-[11px] font-bold text-white dark:text-emerald-300">
+          <span class="w-2 h-2 rounded-full bg-white dark:bg-emerald-400 animate-pulse"></span>
           <span>A: ${originNode ? originNode.name : 'Origin'}</span>
         </div>
-        <div class="w-2 h-2 bg-emerald-400 rotate-45 -mt-1 shadow-sm"></div>
+        <div class="w-2 h-2 bg-emerald-600 dark:bg-emerald-400 rotate-45 -mt-1 shadow-sm"></div>
       `;
       const originMarker = new maplibregl.Marker({ element: el, draggable: true })
         .setLngLat(originTarget)
@@ -371,11 +535,11 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
       const el = document.createElement('div');
       el.className = 'flex flex-col items-center cursor-grab active:cursor-grabbing group pointer-events-auto select-none -translate-y-4';
       el.innerHTML = `
-        <div class="flex items-center gap-1 px-2.5 py-1 rounded-md bg-rose-950/95 border border-rose-400/80 shadow-xl shadow-rose-950/80 text-[11px] font-bold text-rose-300">
-          <span class="w-2 h-2 rounded-full bg-rose-400 animate-pulse"></span>
+        <div class="flex items-center gap-1 px-2.5 py-1 rounded-md bg-rose-600 dark:bg-rose-950/95 border border-white dark:border-rose-400/80 shadow-xl text-[11px] font-bold text-white dark:text-rose-300">
+          <span class="w-2 h-2 rounded-full bg-white dark:bg-rose-400 animate-pulse"></span>
           <span>B: ${destNode ? destNode.name : 'Destination'}</span>
         </div>
-        <div class="w-2 h-2 bg-rose-400 rotate-45 -mt-1 shadow-sm"></div>
+        <div class="w-2 h-2 bg-rose-600 dark:bg-rose-400 rotate-45 -mt-1 shadow-sm"></div>
       `;
       const destMarker = new maplibregl.Marker({ element: el, draggable: true })
         .setLngLat(destTarget)
@@ -388,62 +552,25 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
 
       odMarkersRef.current.dest = destMarker;
     }
-  }, [originNode, destNode, originCoord, destCoord, onPinDrag, isMapReady]);
+  }, [originNode, destNode, originCoord, destCoord, onPinDrag, isMapReady, isDarkMode]);
 
-  // 5. Update Light-Trail Trajectory & Camera on Route Selection
+  // 6. Update Light-Trail Trajectory & Camera on Route Selection
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !isMapReady) return;
 
-    const source = map.getSource('route-light-trail-source') as maplibregl.GeoJSONSource;
-    if (!source) return;
-
-    if (!selectedRoute || selectedRoute.fullGeometry.length < 2) {
-      source.setData({ type: 'FeatureCollection', features: [] });
-      return;
+    try {
+      if (map.isStyleLoaded()) {
+        const source = map.getSource('route-light-trail-source') as maplibregl.GeoJSONSource;
+        if (source) {
+          source.setData(getRouteGeoJSON(selectedRoute));
+        }
+      }
+    } catch {
+      // transient during style reload
     }
 
-    const modeColors: Record<string, string> = {
-      METRO: '#a855f7', // Vivid Purple
-      CAB: '#f59e0b',   // Amber
-      AUTO: '#10b981',  // Emerald
-      BUS: '#06b6d4',   // Cyan
-      WALK: '#94a3b8',  // Slate Gray
-    };
-
-    let features: GeoJSON.Feature[] = [];
-
-    if (selectedRoute.legs && selectedRoute.legs.length > 0) {
-      features = selectedRoute.legs.map((leg, index) => ({
-        type: 'Feature',
-        properties: {
-          mode: leg.mode,
-          color: modeColors[leg.mode] || selectedRoute.accentColor || '#06b6d4',
-          legIndex: index,
-        },
-        geometry: {
-          type: 'LineString',
-          coordinates: leg.pathCoordinates,
-        },
-      }));
-    } else {
-      features = [
-        {
-          type: 'Feature',
-          properties: {
-            mode: 'MULTI',
-            color: selectedRoute.accentColor || '#06b6d4',
-            legIndex: 0,
-          },
-          geometry: {
-            type: 'LineString',
-            coordinates: selectedRoute.fullGeometry,
-          },
-        },
-      ];
-    }
-
-    source.setData({ type: 'FeatureCollection', features });
+    if (!selectedRoute || selectedRoute.fullGeometry.length < 2) return;
 
     // Smoothly fly camera to frame the calculated route
     const allCoords = selectedRoute.fullGeometry;
@@ -462,7 +589,7 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
     }
   }, [selectedRoute, cameraMode, isMapReady]);
 
-  // 6. Simulation Vehicle Gliding Marker with Heading Bearing
+  // 7. Simulation Vehicle Gliding Marker with Heading Bearing
   const lastCameraFollowRef = useRef<number>(0);
 
   useEffect(() => {
@@ -554,33 +681,37 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
     if (!mapRef.current) return;
     const nextVal = !is3DBuildingsVisible;
     setIs3DBuildingsVisible(nextVal);
-    mapRef.current.setLayoutProperty(
-      '3d-buildings-extrusion',
-      'visibility',
-      nextVal ? 'visible' : 'none'
-    );
+    if (mapRef.current.isStyleLoaded() && mapRef.current.getLayer('3d-buildings-extrusion')) {
+      mapRef.current.setLayoutProperty(
+        '3d-buildings-extrusion',
+        'visibility',
+        nextVal ? 'visible' : 'none'
+      );
+    }
   }, [is3DBuildingsVisible]);
 
   const toggleNetworkGrid = useCallback(() => {
     if (!mapRef.current) return;
     const nextVal = !isNetworkGridVisible;
     setIsNetworkGridVisible(nextVal);
-    mapRef.current.setLayoutProperty(
-      'transit-nodes-glow',
-      'visibility',
-      nextVal ? 'visible' : 'none'
-    );
+    if (mapRef.current.isStyleLoaded() && mapRef.current.getLayer('transit-nodes-glow')) {
+      mapRef.current.setLayoutProperty(
+        'transit-nodes-glow',
+        'visibility',
+        nextVal ? 'visible' : 'none'
+      );
+    }
   }, [isNetworkGridVisible]);
 
   return (
-    <div className="relative w-full h-full overflow-hidden select-none bg-slate-950">
+    <div className="relative w-full h-full overflow-hidden select-none bg-slate-100 dark:bg-slate-950 transition-colors duration-300">
       {/* MapLibre WebGL Canvas Container */}
       <div ref={mapContainerRef} className="w-full h-full cursor-crosshair" />
 
       {/* Turn-by-Turn Real-Time Navigation Banner (Top Center below LatencyHUD) */}
       {selectedRoute && currentStep && (
         <div className="absolute top-18 left-1/2 -translate-x-1/2 z-20 pointer-events-auto max-w-[90vw] md:max-w-xl">
-          <div className="glass-panel px-4 py-2.5 rounded-2xl shadow-xl border border-slate-800 flex items-center gap-3">
+          <div className="glass-panel px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl bg-sky-600 text-white flex items-center justify-center shrink-0 shadow-md">
               {currentStep.mode === 'METRO' ? (
                 <Train className="w-4 h-4" />
@@ -590,19 +721,19 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-cyan-400">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-sky-600 dark:text-cyan-400">
                   {isSimulating ? 'Live Navigation' : 'Next Step'}
                 </span>
-                <span className="text-[10px] font-mono text-slate-400">
+                <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
                   {currentStep.distanceKm} km · {currentStep.durationMinutes} mins
                 </span>
               </div>
-              <p className="text-xs font-bold text-slate-100 truncate">
+              <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
                 {currentStep.instruction}
               </p>
             </div>
             <div className="text-right shrink-0 pr-1">
-              <span className="text-xs font-mono font-black text-slate-200">
+              <span className="text-xs font-mono font-black text-slate-900 dark:text-slate-200">
                 ₹{currentStep.costINR}
               </span>
             </div>
@@ -616,7 +747,7 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
         <button
           type="button"
           onClick={onToggleTheme}
-          className="glass-panel px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between gap-2 shadow-md border border-slate-200 dark:border-slate-800 cursor-pointer"
+          className="glass-panel px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between gap-2 shadow-md cursor-pointer"
           title="Toggle Light / Dark theme"
         >
           <div className="flex items-center gap-1.5">
@@ -627,13 +758,13 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
             )}
             <span>{isDarkMode ? 'Dark Theme' : 'Light Theme'}</span>
           </div>
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200/80 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-extrabold">
             {isDarkMode ? 'DARK' : 'LIGHT'}
           </span>
         </button>
 
         {/* Camera Perspective Mode Selector */}
-        <div className="glass-panel p-1 rounded-xl shadow-md border border-slate-200 dark:border-slate-800 flex gap-1">
+        <div className="glass-panel p-1 rounded-xl shadow-md flex gap-1">
           <button
             type="button"
             onClick={() => handleSetCameraMode('3D')}
@@ -678,8 +809,8 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
             title="Toggle 3D Extruded Buildings"
             className={`p-2.5 rounded-xl backdrop-blur-md border transition-all shadow-lg cursor-pointer ${
               is3DBuildingsVisible
-                ? 'bg-cyan-950/80 border-cyan-500/50 text-cyan-300 shadow-cyan-950/40'
-                : 'bg-slate-900/70 border-slate-700/50 text-slate-400 hover:text-slate-200'
+                ? 'bg-sky-100 dark:bg-cyan-950/80 border-sky-400 dark:border-cyan-500/50 text-sky-700 dark:text-cyan-300'
+                : 'glass-button'
             }`}
           >
             <Layers className="w-4 h-4" />
@@ -692,8 +823,8 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
             title="Toggle 1,500-Node GPU WebGL Grid"
             className={`p-2.5 rounded-xl backdrop-blur-md border transition-all shadow-lg cursor-pointer ${
               isNetworkGridVisible
-                ? 'bg-cyan-950/80 border-cyan-500/50 text-cyan-300 shadow-cyan-950/40'
-                : 'bg-slate-900/70 border-slate-700/50 text-slate-400 hover:text-slate-200'
+                ? 'bg-sky-100 dark:bg-cyan-950/80 border-sky-400 dark:border-cyan-500/50 text-sky-700 dark:text-cyan-300'
+                : 'glass-button'
             }`}
           >
             <Eye className="w-4 h-4" />
@@ -704,7 +835,7 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
             type="button"
             onClick={handleResetBearing}
             title="Reset North Facing"
-            className="p-2.5 rounded-xl bg-slate-900/70 backdrop-blur-md border border-slate-700/50 text-slate-300 hover:text-cyan-400 hover:border-cyan-500/40 shadow-lg transition-all cursor-pointer"
+            className="glass-button p-2.5 rounded-xl cursor-pointer"
           >
             <Compass
               className="w-4 h-4 transition-transform duration-300"
@@ -716,12 +847,12 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
 
       {/* Floating Status / Target Mode Banner (Bottom Center) */}
       <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-10 pointer-events-auto flex items-center gap-2">
-        <div className="glass-panel px-4 py-1.5 rounded-full text-xs text-slate-700 dark:text-slate-200 border border-slate-200/90 dark:border-slate-800 shadow-md flex items-center gap-2.5 font-medium backdrop-blur-xl">
+        <div className="glass-panel px-4 py-1.5 rounded-full text-xs text-slate-700 dark:text-slate-200 shadow-md flex items-center gap-2.5 font-medium backdrop-blur-xl">
           <div className="flex items-center gap-1.5">
             {isCalculating ? (
               <Zap className="w-3.5 h-3.5 text-amber-500 animate-spin" />
             ) : (
-              <Navigation className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+              <Navigation className="w-3.5 h-3.5 text-sky-600 dark:text-cyan-400 animate-pulse" />
             )}
             <span className="text-[11px] font-semibold">
               {isCalculating ? 'Computing Pareto routes via Web Worker...' : 'Click map to snap GPS junction & route:'}
@@ -744,16 +875,16 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
       </div>
 
       {/* Real-Time HUD Coordinate & GPU WebGL Telemetry Readout (Bottom Left) */}
-      <div className="absolute bottom-3 left-4 z-20 flex items-center gap-3 px-3 py-1.5 rounded-lg bg-slate-950/80 backdrop-blur-md border border-slate-800 text-[10px] font-mono text-slate-400 pointer-events-none">
-        <div className="flex items-center gap-1 text-cyan-400">
+      <div className="absolute bottom-3 left-4 z-20 flex items-center gap-3 px-3 py-1.5 rounded-lg bg-white/90 dark:bg-slate-950/80 backdrop-blur-md border border-slate-200 dark:border-slate-800 text-[10px] font-mono text-slate-600 dark:text-slate-400 pointer-events-none shadow-sm">
+        <div className="flex items-center gap-1 text-sky-600 dark:text-cyan-400">
           <Zap className="w-3 h-3" />
           <span>GPU WebGL Locked 60 FPS</span>
         </div>
-        <span className="text-slate-600">|</span>
+        <span className="text-slate-300 dark:text-slate-600">|</span>
         <div>PITCH: {currentPitch}°</div>
-        <span className="text-slate-600">|</span>
+        <span className="text-slate-300 dark:text-slate-600">|</span>
         <div>AZ: {currentBearing}°</div>
-        <span className="text-slate-600">|</span>
+        <span className="text-slate-300 dark:text-slate-600">|</span>
         <div>NODES: {nodes.length}</div>
       </div>
     </div>

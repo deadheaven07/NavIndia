@@ -238,7 +238,7 @@ export function App() {
   const destId = typeof destTarget === 'string' ? destTarget : snappedDest?.id || 'dest_point';
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-slate-950 text-slate-100 select-none">
+    <div className="relative w-screen h-screen overflow-hidden bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 select-none">
       {/* 3D Map Viewport Layer */}
       <Map3DViewport
         nodes={SCALED_BENGALURU_NODES}
