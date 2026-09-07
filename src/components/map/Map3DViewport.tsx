@@ -6,6 +6,8 @@ import { generateBengaluru3DBuildings } from '../../algorithms/data/bengaluru-ne
 import {
   Layers,
   Compass,
+  Sun,
+  Moon,
   Train,
   Car,
   Zap,
@@ -29,6 +31,8 @@ interface Map3DViewportProps {
   isCalculating?: boolean;
   simulationProgress: number; // 0 to 1
   isSimulating: boolean;
+  isDarkMode: boolean;
+  onToggleTheme: () => void;
 }
 
 export const Map3DViewport: React.FC<Map3DViewportProps> = ({
@@ -45,6 +49,8 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
   isCalculating = false,
   simulationProgress,
   isSimulating,
+  isDarkMode,
+  onToggleTheme,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -530,6 +536,26 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
 
       {/* Floating 3D Perspective & Camera Controls (Top Right) */}
       <div className="absolute top-4 right-4 z-20 flex flex-col gap-2 pointer-events-auto">
+        {/* Theme Toggle Pill */}
+        <button
+          type="button"
+          onClick={onToggleTheme}
+          className="glass-panel px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between gap-2 shadow-md border border-slate-200 dark:border-slate-800 cursor-pointer"
+          title="Toggle Light / Dark theme"
+        >
+          <div className="flex items-center gap-1.5">
+            {isDarkMode ? (
+              <Moon className="w-3.5 h-3.5 text-indigo-400" />
+            ) : (
+              <Sun className="w-3.5 h-3.5 text-amber-500" />
+            )}
+            <span>{isDarkMode ? 'Dark Theme' : 'Light Theme'}</span>
+          </div>
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+            {isDarkMode ? 'DARK' : 'LIGHT'}
+          </span>
+        </button>
+
         {/* Camera Perspective Mode Selector */}
         <div className="glass-panel p-1 rounded-xl shadow-md border border-slate-200 dark:border-slate-800 flex gap-1">
           <button

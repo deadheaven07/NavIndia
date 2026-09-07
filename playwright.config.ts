@@ -1,0 +1,22 @@
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './e2e',
+  timeout: 60000,
+  expect: {
+    timeout: 10000,
+  },
+  fullyParallel: false,
+  workers: 1,
+  reporter: [['list'], ['html', { open: 'never' }]],
+  use: {
+    baseURL: 'http://127.0.0.1:5173',
+    headless: false, // Headed mode for user observation
+    channel: 'chrome', // Use system Google Chrome on macOS
+    viewport: { width: 1440, height: 900 },
+    actionTimeout: 10000,
+    trace: 'on-first-retry',
+    video: 'on',
+    screenshot: 'on',
+  },
+});

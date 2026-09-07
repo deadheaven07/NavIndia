@@ -12,10 +12,16 @@ import { HUDDeck } from './components/hud/HUDDeck';
 import { LatencyHUD } from './components/hud/LatencyHUD';
 
 export function App() {
-  // Permanent Dark Theme Enforcement
+  // Theme State: Defaults to Light Theme
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
+
   useEffect(() => {
-    document.documentElement.classList.add('dark');
-  }, []);
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDarkMode]);
 
   // Traffic / Peak hour state
   const [isPeakHour, setIsPeakHour] = useState<boolean>(false);
@@ -249,6 +255,8 @@ export function App() {
         isCalculating={isCalculating}
         simulationProgress={simulationProgress}
         isSimulating={isSimulating}
+        isDarkMode={isDarkMode}
+        onToggleTheme={() => setIsDarkMode(!isDarkMode)}
       />
 
       {/* Top Telemetry HUD */}

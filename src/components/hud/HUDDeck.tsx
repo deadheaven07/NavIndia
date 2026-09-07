@@ -91,7 +91,7 @@ export const HUDDeck: React.FC<HUDDeckProps> = ({
 
   return (
     <div
-      className={`fixed top-4 left-4 bottom-4 z-20 flex transition-all duration-500 ease-out pointer-events-none ${
+      className={`fixed top-4 left-4 bottom-4 z-40 flex transition-all duration-500 ease-out pointer-events-none ${
         isCollapsed ? '-translate-x-[calc(100%-2.5rem)]' : 'translate-x-0'
       }`}
     >
