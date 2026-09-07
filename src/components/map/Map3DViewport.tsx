@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import type { Coordinates, RouteOption, TransitNode } from '../../algorithms/types';
+import type { TriggerIncidentPayload } from '../../workers/types';
 import { generateBengaluru3DBuildings } from '../../algorithms/data/bengaluru-network-scaled';
 import {
   Layers,
@@ -84,6 +85,7 @@ interface Map3DViewportProps {
   isSimulating: boolean;
   isDarkMode: boolean;
   onToggleTheme: () => void;
+  activeIncident?: TriggerIncidentPayload | null;
 }
 
 // 8 Curated Iconic Transit Hubs that deserve permanent landmark badges (Tier 2)
@@ -114,11 +116,13 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
   isSimulating,
   isDarkMode,
   onToggleTheme,
+  activeIncident,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const landmarkMarkersRef = useRef<maplibregl.Marker[]>([]);
   const odMarkersRef = useRef<{ origin?: maplibregl.Marker; dest?: maplibregl.Marker }>({});
+  const incidentMarkerRef = useRef<maplibregl.Marker | null>(null);
   const simVehicleMarkerRef = useRef<maplibregl.Marker | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const currentStyleRef = useRef<string>('');
@@ -553,6 +557,33 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
       odMarkersRef.current.dest = destMarker;
     }
   }, [originNode, destNode, originCoord, destCoord, onPinDrag, isMapReady, isDarkMode]);
+
+  // 5.1 Render Dynamic Incident Shockwave Chokepoint on Map
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isMapReady) return;
+
+    if (incidentMarkerRef.current) {
+      incidentMarkerRef.current.remove();
+      incidentMarkerRef.current = null;
+    }
+
+    if (activeIncident) {
+      const el = document.createElement('div');
+      el.className = 'relative flex items-center justify-center pointer-events-none -translate-y-4 select-none';
+      el.innerHTML = `
+        <div class="absolute w-28 h-28 rounded-full bg-rose-500/25 animate-ping"></div>
+        <div class="absolute w-16 h-16 rounded-full bg-rose-600/35 animate-pulse"></div>
+        <div class="px-2.5 py-1 rounded-full bg-rose-950/95 border border-rose-400 text-rose-200 font-extrabold text-[10px] shadow-2xl flex items-center gap-1.5 backdrop-blur-md">
+          <span class="w-2 h-2 rounded-full bg-rose-400 animate-ping"></span>
+          <span>⚡ GRIDLOCK: ${activeIncident.name} (${activeIncident.severityMultiplier}x)</span>
+        </div>
+      `;
+      incidentMarkerRef.current = new maplibregl.Marker({ element: el })
+        .setLngLat(activeIncident.center)
+        .addTo(map);
+    }
+  }, [activeIncident, isMapReady]);
 
   // 6. Update Light-Trail Trajectory & Camera on Route Selection
   useEffect(() => {

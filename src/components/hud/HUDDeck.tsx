@@ -11,8 +11,10 @@ import {
   ChevronRight,
   BarChart3,
   ShieldCheck,
+  Zap,
 } from 'lucide-react';
 import type { RouteOption, TransitNode } from '../../algorithms/types';
+import type { TriggerIncidentPayload } from '../../workers/types';
 import { RouteComparisonCard } from './RouteComparisonCard';
 
 interface HUDDeckProps {
@@ -31,6 +33,8 @@ interface HUDDeckProps {
   simulationProgress: number; // 0 to 1
   isPeakHour: boolean;
   onTogglePeakHour: () => void;
+  activeIncident?: TriggerIncidentPayload | null;
+  onToggleIncident?: () => void;
 }
 
 export const HUDDeck: React.FC<HUDDeckProps> = ({
@@ -49,6 +53,8 @@ export const HUDDeck: React.FC<HUDDeckProps> = ({
   simulationProgress,
   isPeakHour,
   onTogglePeakHour,
+  activeIncident,
+  onToggleIncident,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'ROUTES' | 'MATRIX'>('ROUTES');
@@ -118,21 +124,49 @@ export const HUDDeck: React.FC<HUDDeckProps> = ({
             </div>
           </div>
 
-          {/* Peak Traffic Mode Switcher */}
-          <button
-            type="button"
-            onClick={onTogglePeakHour}
-            title="Toggle Peak Rush Hour Jam (multiplies road delay to showcase Metro resilience)"
-            className={`flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full border transition-all shadow-2xs ${
-              isPeakHour
-                ? 'bg-rose-100 dark:bg-rose-500/20 border-rose-300 dark:border-rose-500/60 text-rose-800 dark:text-rose-300 animate-pulse'
-                : 'bg-slate-100 dark:bg-slate-800/60 border-slate-300 dark:border-slate-700/60 text-slate-600 dark:text-slate-400 hover:text-slate-900'
-            }`}
-          >
-            <Flame className={`w-3.5 h-3.5 ${isPeakHour ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500'}`} />
-            <span>{isPeakHour ? 'Peak Congestion' : 'Normal Traffic'}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Incident Trigger */}
+            {onToggleIncident && (
+              <button
+                type="button"
+                onClick={onToggleIncident}
+                title="Toggle Incident"
+                className={`p-2 rounded-full border transition-all ${
+                  activeIncident
+                    ? 'bg-rose-500 border-rose-600 text-white animate-pulse'
+                    : 'bg-amber-100 dark:bg-amber-900/40 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400'
+                }`}
+              >
+                <Zap className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Peak Traffic Mode Switcher */}
+            <button
+              type="button"
+              onClick={onTogglePeakHour}
+              title="Toggle Peak Rush Hour Jam (multiplies road delay to showcase Metro resilience)"
+              className={`flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full border transition-all shadow-2xs ${
+                isPeakHour
+                  ? 'bg-rose-100 dark:bg-rose-500/20 border-rose-300 dark:border-rose-500/60 text-rose-800 dark:text-rose-300 animate-pulse'
+                  : 'bg-slate-100 dark:bg-slate-800/60 border-slate-300 dark:border-slate-700/60 text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <Flame className={`w-3.5 h-3.5 ${isPeakHour ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500'}`} />
+              <span>{isPeakHour ? 'Peak Congestion' : 'Normal Traffic'}</span>
+            </button>
+          </div>
         </div>
+
+        {/* Dynamic Incident Alert Banner */}
+        {activeIncident && (
+          <div className="mt-3 px-3 py-2 rounded-xl bg-rose-100 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-700 flex items-center justify-between text-[11px] text-rose-800 dark:text-rose-300 animate-pulse">
+            <div className="flex items-center gap-1.5 font-bold">
+              <span>⚠️ {activeIncident.name}</span>
+            </div>
+            <span className="font-mono font-extrabold">{activeIncident.severityMultiplier}x Delay</span>
+          </div>
+        )}
 
         {/* Origin & Destination Cockpit */}
         <div className="pt-3 pb-2 shrink-0">

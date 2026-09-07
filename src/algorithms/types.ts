@@ -74,4 +74,9 @@ export interface RouteComputationTelemetry {
   paretoEvaluationTimeMs: number;
   totalPipelineTimeMs: number;
   visitedNodesCount: number;
+  pruningEfficiencyPercent: number;
+  paretoCandidatesEvaluated: number;
+  paretoNonDominatedCount: number;
+  graphTotalNodes: number;
+  workerIpcRoundtripMs?: number;
 }

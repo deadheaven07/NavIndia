@@ -11,6 +11,8 @@ import { useRoutingWorker } from './hooks/useRoutingWorker';
 import { Map3DViewport } from './components/map/Map3DViewport';
 import { HUDDeck } from './components/hud/HUDDeck';
 import { LatencyHUD } from './components/hud/LatencyHUD';
+import { EngineeringTelemetryHUD } from './components/hud/EngineeringTelemetryHUD';
+import { Zap } from 'lucide-react';
 
 export function App() {
   // Theme State: Defaults to Light Theme
@@ -37,10 +39,28 @@ export function App() {
     graphStats,
     snappedOrigin,
     snappedDest,
+    activeIncident,
+    affectedEdgesCount,
     error: routingError,
     calculateRoute,
+    triggerIncident,
+    clearIncident,
     setSelectedRoute,
   } = useRoutingWorker();
+
+  // Toggle Dynamic Incident Shockwave at Silk Board Junction
+  const handleToggleSilkBoardIncident = useCallback(() => {
+    if (activeIncident) {
+      clearIncident();
+    } else {
+      triggerIncident({
+        center: [77.6229, 12.9177], // Central Silk Board Interchange
+        radiusKm: 2.5,
+        severityMultiplier: 3.5,
+        name: 'Silk Board Central Gridlock',
+      });
+    }
+  }, [activeIncident, triggerIncident, clearIncident]);
 
   // Origin & Destination targets (can be either node ID string or raw [lng, lat] Coordinates)
   const [originTarget, setOriginTarget] = useState<string | Coordinates>('majestic');
@@ -258,10 +278,32 @@ export function App() {
         isSimulating={isSimulating}
         isDarkMode={isDarkMode}
         onToggleTheme={() => setIsDarkMode(!isDarkMode)}
+        activeIncident={activeIncident}
       />
 
       {/* Top Telemetry HUD */}
       <LatencyHUD telemetry={telemetry} graphStats={graphStats} />
+
+      {/* Quick-Action Button: Trigger Silk Board Gridlock Incident */}
+      <div className="absolute top-18 right-4 lg:right-auto lg:left-[460px] z-30 pointer-events-auto">
+        <button
+          type="button"
+          onClick={handleToggleSilkBoardIncident}
+          className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all shadow-lg flex items-center gap-1.5 border cursor-pointer ${
+            activeIncident
+              ? 'bg-rose-600 text-white border-rose-400 animate-pulse shadow-rose-900/40'
+              : 'glass-panel text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:border-amber-400 hover:text-amber-500'
+          }`}
+          title="⚡ Trigger severe real-time traffic disruption at Central Silk Board"
+        >
+          <Zap className={`w-3.5 h-3.5 ${activeIncident ? 'text-amber-300' : 'text-amber-500'}`} />
+          <span>
+            {activeIncident
+              ? `⚡ Clear Silk Board Gridlock (${affectedEdgesCount} Edges Throttled)`
+              : '⚡ Trigger Silk Board Gridlock Incident'}
+          </span>
+        </button>
+      </div>
 
       {/* Navigation HUD Deck Cockpit */}
       <HUDDeck
@@ -284,6 +326,17 @@ export function App() {
         simulationProgress={simulationProgress}
         isPeakHour={isPeakHour}
         onTogglePeakHour={handleTogglePeakHour}
+        activeIncident={activeIncident}
+        onToggleIncident={handleToggleSilkBoardIncident}
+      />
+
+      {/* Live Engineering Telemetry & Observability HUD (Bottom Right) */}
+      <EngineeringTelemetryHUD
+        telemetry={telemetry}
+        graphStats={graphStats}
+        isCalculating={isCalculating}
+        activeIncident={activeIncident}
+        affectedEdgesCount={affectedEdgesCount}
       />
 
       {/* Worker Error Notification Toast if any */}

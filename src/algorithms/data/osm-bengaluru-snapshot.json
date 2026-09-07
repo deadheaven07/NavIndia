@@ -1,0 +1,448 @@
+{
+  "metadata": {
+    "source": "OpenStreetMap Ingestion Engine (Bengaluru Metro & Arterial Highway Snapshot)",
+    "bounds": {
+      "minLat": 12.82,
+      "minLon": 77.5,
+      "maxLat": 13.08,
+      "maxLon": 77.78
+    },
+    "ingestedAt": "2026-09-07T14:37:49.852Z",
+    "totalStations": 23,
+    "totalJunctions": 10,
+    "totalArterialWays": 3,
+    "totalNetworkKm": 33.4
+  },
+  "stations": [
+    {
+      "id": "station_challaghatta",
+      "osmId": 1001,
+      "name": "Challaghatta",
+      "coordinates": [
+        77.476,
+        12.899
+      ],
+      "line": "PURPLE"
+    },
+    {
+      "id": "station_kengeri",
+      "osmId": 1002,
+      "name": "Kengeri Bus Terminal",
+      "coordinates": [
+        77.483,
+        12.909
+      ],
+      "line": "PURPLE"
+    },
+    {
+      "id": "station_mysore_road",
+      "osmId": 1003,
+      "name": "Mysuru Road",
+      "coordinates": [
+        77.533,
+        12.946
+      ],
+      "line": "PURPLE"
+    },
+    {
+      "id": "station_vijayanagar",
+      "osmId": 1004,
+      "name": "Vijayanagar",
+      "coordinates": [
+        77.537,
+        12.969
+      ],
+      "line": "PURPLE"
+    },
+    {
+      "id": "station_majestic",
+      "osmId": 1005,
+      "name": "Nadaprabhu Kempegowda Station Majestic",
+      "coordinates": [
+        77.572,
+        12.978
+      ],
+      "line": "PURPLE"
+    },
+    {
+      "id": "station_vidhana_soudha",
+      "osmId": 1006,
+      "name": "Vidhana Soudha",
+      "coordinates": [
+        77.592,
+        12.979
+      ],
+      "line": "PURPLE"
+    },
+    {
+      "id": "station_mg_road",
+      "osmId": 1007,
+      "name": "Mahatma Gandhi Road",
+      "coordinates": [
+        77.607,
+        12.975
+      ],
+      "line": "PURPLE"
+    },
+    {
+      "id": "station_indiranagar",
+      "osmId": 1008,
+      "name": "Indiranagar",
+      "coordinates": [
+        77.641,
+        12.978
+      ],
+      "line": "PURPLE"
+    },
+    {
+      "id": "station_byappanahalli",
+      "osmId": 1009,
+      "name": "Baiyappanahalli",
+      "coordinates": [
+        77.652,
+        12.991
+      ],
+      "line": "PURPLE"
+    },
+    {
+      "id": "station_kr_puram",
+      "osmId": 1010,
+      "name": "Krishnarajapura (KR Puram)",
+      "coordinates": [
+        77.689,
+        12.998
+      ],
+      "line": "PURPLE"
+    },
+    {
+      "id": "station_garudacharpalya",
+      "osmId": 1011,
+      "name": "Garudacharpalya",
+      "coordinates": [
+        77.712,
+        12.992
+      ],
+      "line": "PURPLE"
+    },
+    {
+      "id": "station_itpl",
+      "osmId": 1012,
+      "name": "Pattandur Agrahara (ITPL)",
+      "coordinates": [
+        77.747,
+        12.986
+      ],
+      "line": "PURPLE"
+    },
+    {
+      "id": "station_whitefield",
+      "osmId": 1013,
+      "name": "Whitefield (Kadugodi)",
+      "coordinates": [
+        77.761,
+        12.996
+      ],
+      "line": "PURPLE"
+    },
+    {
+      "id": "station_nagasandra",
+      "osmId": 2001,
+      "name": "Nagasandra",
+      "coordinates": [
+        77.5,
+        13.048
+      ],
+      "line": "GREEN"
+    },
+    {
+      "id": "station_yeshwanthpur",
+      "osmId": 2002,
+      "name": "Yeshwanthpur",
+      "coordinates": [
+        77.55,
+        13.023
+      ],
+      "line": "GREEN"
+    },
+    {
+      "id": "station_malleshwaram",
+      "osmId": 2003,
+      "name": "Srirampura / Malleshwaram",
+      "coordinates": [
+        77.564,
+        12.997
+      ],
+      "line": "GREEN"
+    },
+    {
+      "id": "station_chickpet",
+      "osmId": 2004,
+      "name": "Chickpet",
+      "coordinates": [
+        77.574,
+        12.968
+      ],
+      "line": "GREEN"
+    },
+    {
+      "id": "station_kr_market",
+      "osmId": 2005,
+      "name": "Krishna Rajendra Market",
+      "coordinates": [
+        77.575,
+        12.96
+      ],
+      "line": "GREEN"
+    },
+    {
+      "id": "station_national_college",
+      "osmId": 2006,
+      "name": "National College Basavanagudi",
+      "coordinates": [
+        77.573,
+        12.95
+      ],
+      "line": "GREEN"
+    },
+    {
+      "id": "station_south_end",
+      "osmId": 2007,
+      "name": "South End Circle",
+      "coordinates": [
+        77.575,
+        12.937
+      ],
+      "line": "GREEN"
+    },
+    {
+      "id": "station_jayanagar",
+      "osmId": 2008,
+      "name": "Jayanagar",
+      "coordinates": [
+        77.58,
+        12.929
+      ],
+      "line": "GREEN"
+    },
+    {
+      "id": "station_banashankari",
+      "osmId": 2009,
+      "name": "Banashankari",
+      "coordinates": [
+        77.573,
+        12.915
+      ],
+      "line": "GREEN"
+    },
+    {
+      "id": "station_silk_institute",
+      "osmId": 2010,
+      "name": "Silk Institute",
+      "coordinates": [
+        77.525,
+        12.862
+      ],
+      "line": "GREEN"
+    }
+  ],
+  "junctions": [
+    {
+      "id": "junc_silk_board",
+      "osmId": 3001,
+      "name": "Central Silk Board Junction",
+      "coordinates": [
+        77.6229,
+        12.9177
+      ],
+      "highwayType": "motorway_junction",
+      "degree": 8
+    },
+    {
+      "id": "junc_hebbal",
+      "osmId": 3002,
+      "name": "Hebbal Flyover Junction",
+      "coordinates": [
+        77.5925,
+        13.0358
+      ],
+      "highwayType": "motorway_junction",
+      "degree": 6
+    },
+    {
+      "id": "junc_tin_factory",
+      "osmId": 3003,
+      "name": "Tin Factory Interchange (Old Madras Rd)",
+      "coordinates": [
+        77.6698,
+        12.9975
+      ],
+      "highwayType": "trunk",
+      "degree": 6
+    },
+    {
+      "id": "junc_marathahalli",
+      "osmId": 3004,
+      "name": "Marathahalli Bridge Junction",
+      "coordinates": [
+        77.7011,
+        12.9563
+      ],
+      "highwayType": "trunk",
+      "degree": 6
+    },
+    {
+      "id": "junc_bellandur_ecospace",
+      "osmId": 3005,
+      "name": "Bellandur EcoSpace ORR Junction",
+      "coordinates": [
+        77.6848,
+        12.926
+      ],
+      "highwayType": "trunk",
+      "degree": 6
+    },
+    {
+      "id": "junc_ibblur",
+      "osmId": 3006,
+      "name": "Ibblur Sarjapur ORR Junction",
+      "coordinates": [
+        77.666,
+        12.9215
+      ],
+      "highwayType": "trunk",
+      "degree": 5
+    },
+    {
+      "id": "junc_sony_world",
+      "osmId": 3007,
+      "name": "Sony World Signal Koramangala",
+      "coordinates": [
+        77.6271,
+        12.9345
+      ],
+      "highwayType": "primary",
+      "degree": 4
+    },
+    {
+      "id": "junc_electronic_city_gate",
+      "osmId": 3008,
+      "name": "Electronic City Tollgate Phase 1",
+      "coordinates": [
+        77.661,
+        12.845
+      ],
+      "highwayType": "motorway_junction",
+      "degree": 6
+    },
+    {
+      "id": "junc_whitefield_hope_farm",
+      "osmId": 3009,
+      "name": "Hope Farm Junction Whitefield",
+      "coordinates": [
+        77.751,
+        12.983
+      ],
+      "highwayType": "primary",
+      "degree": 4
+    },
+    {
+      "id": "junc_goraguntepalya",
+      "osmId": 3010,
+      "name": "Goraguntepalya Tumkur Rd Junction",
+      "coordinates": [
+        77.538,
+        13.028
+      ],
+      "highwayType": "trunk",
+      "degree": 5
+    }
+  ],
+  "ways": [
+    {
+      "id": "way_orr_south",
+      "osmId": 4001,
+      "name": "Outer Ring Road (Silk Board - Marathahalli)",
+      "highway": "trunk",
+      "oneway": false,
+      "coordinates": [
+        [
+          77.6229,
+          12.9177
+        ],
+        [
+          77.645,
+          12.919
+        ],
+        [
+          77.666,
+          12.9215
+        ],
+        [
+          77.6848,
+          12.926
+        ],
+        [
+          77.695,
+          12.937
+        ],
+        [
+          77.7011,
+          12.9563
+        ]
+      ],
+      "lengthKm": 11.2
+    },
+    {
+      "id": "way_hosur_elevated",
+      "osmId": 4002,
+      "name": "Hosur Road Elevated Expressway",
+      "highway": "motorway",
+      "oneway": false,
+      "coordinates": [
+        [
+          77.6229,
+          12.9177
+        ],
+        [
+          77.635,
+          12.895
+        ],
+        [
+          77.65,
+          12.87
+        ],
+        [
+          77.661,
+          12.845
+        ]
+      ],
+      "lengthKm": 9.8
+    },
+    {
+      "id": "way_airport_road",
+      "osmId": 4003,
+      "name": "Old Airport Road (CBD to Marathahalli)",
+      "highway": "primary",
+      "oneway": false,
+      "coordinates": [
+        [
+          77.607,
+          12.975
+        ],
+        [
+          77.63,
+          12.965
+        ],
+        [
+          77.658,
+          12.959
+        ],
+        [
+          77.7011,
+          12.9563
+        ]
+      ],
+      "lengthKm": 12.4
+    }
+  ]
+}

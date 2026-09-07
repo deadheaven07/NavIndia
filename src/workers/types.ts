@@ -6,6 +6,13 @@ import type {
   TransitNode,
 } from '../algorithms/types';
 
+export interface TriggerIncidentPayload {
+  center: Coordinates; // [lng, lat]
+  radiusKm: number;
+  severityMultiplier: number;
+  name: string;
+}
+
 // Inbound messages (Main Thread -> Worker)
 export interface CalculateRouteMessage {
   type: 'CALCULATE_ROUTE';
@@ -32,6 +39,17 @@ export interface SetPeakHourMessage {
   };
 }
 
+export interface TriggerIncidentMessage {
+  type: 'TRIGGER_INCIDENT';
+  id?: string;
+  payload: TriggerIncidentPayload;
+}
+
+export interface ClearIncidentMessage {
+  type: 'CLEAR_INCIDENT';
+  id?: string;
+}
+
 export interface GetStatsMessage {
   type: 'GET_STATS';
 }
@@ -40,6 +58,8 @@ export type RoutingWorkerInboundMessage =
   | CalculateRouteMessage
   | SnapPointMessage
   | SetPeakHourMessage
+  | TriggerIncidentMessage
+  | ClearIncidentMessage
   | GetStatsMessage;
 
 // Outbound messages (Worker -> Main Thread)
@@ -72,6 +92,14 @@ export interface SnapResultResponse {
   };
 }
 
+export interface IncidentStatusResponse {
+  type: 'INCIDENT_STATUS';
+  payload: {
+    activeIncident: TriggerIncidentPayload | null;
+    affectedEdgesCount: number;
+  };
+}
+
 export interface WorkerErrorResponse {
   type: 'ERROR';
   id?: string;
@@ -84,4 +112,5 @@ export type RoutingWorkerOutboundMessage =
   | WorkerReadyResponse
   | RouteResultResponse
   | SnapResultResponse
+  | IncidentStatusResponse
   | WorkerErrorResponse;

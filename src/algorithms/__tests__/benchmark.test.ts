@@ -101,7 +101,9 @@ describe('Google-Caliber Benchmark Suite: 1,500+ Node Network', () => {
     console.log('===============================================================\n');
 
     // Strict assertions mandated by Google-caliber engineering standards
-    expect(avgSnap).toBeLessThan(1.0); // Sub-1ms KD-Tree snap time
-    expect(avgPath).toBeLessThan(10.0); // Sub-10ms A* pathfinding latency
+    expect(avgSnap).toBeLessThan(1.0); // Sub-1ms KD-Tree snap time average
+    expect(p95Snap).toBeLessThan(1.0); // Sub-1ms KD-Tree snap time (p95 SLA)
+    expect(avgPath).toBeLessThan(10.0); // Sub-10ms A* pathfinding latency average
+    expect(p95Path).toBeLessThan(10.0); // Sub-10ms A* pathfinding latency (p95 SLA)
   });
 });

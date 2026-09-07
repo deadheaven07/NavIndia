@@ -8,8 +8,11 @@ import type {
 } from '../algorithms/types';
 import type {
   CalculateRouteMessage,
+  ClearIncidentMessage,
   RoutingWorkerOutboundMessage,
   SnapPointMessage,
+  TriggerIncidentMessage,
+  TriggerIncidentPayload,
 } from '../workers/types';
 
 export interface UseRoutingWorkerReturn {
@@ -21,19 +24,23 @@ export interface UseRoutingWorkerReturn {
   graphStats: GraphStats;
   snappedOrigin: TransitNode | null;
   snappedDest: TransitNode | null;
+  activeIncident: TriggerIncidentPayload | null;
+  affectedEdgesCount: number;
   error: string | null;
   calculateRoute: (
     origin: string | Coordinates,
     destination: string | Coordinates,
     isPeakHour?: boolean
   ) => void;
+  triggerIncident: (payload: TriggerIncidentPayload) => void;
+  clearIncident: () => void;
   setSelectedRoute: (route: RouteOption | null) => void;
   snapCoordinate: (coord: Coordinates) => Promise<{ node: TransitNode; distanceKm: number }>;
 }
 
 const DEFAULT_GRAPH_STATS: GraphStats = {
-  totalNodes: 1533,
-  totalEdges: 12548,
+  totalNodes: 1567,
+  totalEdges: 11986,
   totalNetworkKm: 4451.6,
   modeCounts: {
     METRO: 122,
@@ -47,6 +54,7 @@ const DEFAULT_GRAPH_STATS: GraphStats = {
 export function useRoutingWorker(): UseRoutingWorkerReturn {
   const workerRef = useRef<Worker | null>(null);
   const activeRequestIdRef = useRef<string | null>(null);
+  const requestStartTimesRef = useRef<Map<string, number>>(new Map());
   const snapPromisesRef = useRef<
     Map<string, { resolve: (val: { node: TransitNode; distanceKm: number }) => void; reject: (err: Error) => void }>
   >(new Map());
@@ -59,6 +67,8 @@ export function useRoutingWorker(): UseRoutingWorkerReturn {
   const [graphStats, setGraphStats] = useState<GraphStats>(DEFAULT_GRAPH_STATS);
   const [snappedOrigin, setSnappedOrigin] = useState<TransitNode | null>(null);
   const [snappedDest, setSnappedDest] = useState<TransitNode | null>(null);
+  const [activeIncident, setActiveIncident] = useState<TriggerIncidentPayload | null>(null);
+  const [affectedEdgesCount, setAffectedEdgesCount] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
 
   // Initialize Web Worker
@@ -79,20 +89,35 @@ export function useRoutingWorker(): UseRoutingWorkerReturn {
           break;
         }
 
-        case 'ROUTE_RESULT': {
-          // Ignore outdated responses from fast repeated clicks
-          if (msg.id === activeRequestIdRef.current) {
-            setIsCalculating(false);
-            setRoutes(msg.payload.routes);
-            setTelemetry(msg.payload.telemetry);
-            setSnappedOrigin(msg.payload.snappedOrigin);
-            setSnappedDest(msg.payload.snappedDest);
-            setError(null);
+        case 'INCIDENT_STATUS': {
+          setActiveIncident(msg.payload.activeIncident);
+          setAffectedEdgesCount(msg.payload.affectedEdgesCount);
+          break;
+        }
 
-            // Select Smart Multi-Modal by default if present
-            const smart = msg.payload.routes.find((r) => r.archetype === 'SMART_MULTIMODAL');
-            setSelectedRoute(smart || msg.payload.routes[0]);
-          }
+        case 'ROUTE_RESULT': {
+          // Compute Worker IPC Roundtrip latency
+          const startTime = requestStartTimesRef.current.get(msg.id);
+          const roundtripMs = startTime
+            ? Math.round((performance.now() - startTime) * 10) / 10
+            : Math.round((msg.payload.telemetry.totalPipelineTimeMs + 0.5) * 10) / 10;
+          requestStartTimesRef.current.delete(msg.id);
+
+          const fullTelemetry: RouteComputationTelemetry = {
+            ...msg.payload.telemetry,
+            workerIpcRoundtripMs: roundtripMs,
+          };
+
+          setIsCalculating(false);
+          setRoutes(msg.payload.routes);
+          setTelemetry(fullTelemetry);
+          setSnappedOrigin(msg.payload.snappedOrigin);
+          setSnappedDest(msg.payload.snappedDest);
+          setError(null);
+
+          // Select Smart Multi-Modal by default if present
+          const smart = msg.payload.routes.find((r) => r.archetype === 'SMART_MULTIMODAL');
+          setSelectedRoute(smart || msg.payload.routes[0]);
           break;
         }
 
@@ -142,6 +167,7 @@ export function useRoutingWorker(): UseRoutingWorkerReturn {
 
       const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       activeRequestIdRef.current = requestId;
+      requestStartTimesRef.current.set(requestId, performance.now());
       setIsCalculating(true);
       setError(null);
 
@@ -159,6 +185,29 @@ export function useRoutingWorker(): UseRoutingWorkerReturn {
     },
     []
   );
+
+  // Trigger dynamic spatial traffic incident (e.g. Silk Board Gridlock)
+  const triggerIncident = useCallback((payload: TriggerIncidentPayload) => {
+    if (!workerRef.current) return;
+
+    setIsCalculating(true);
+    const msg: TriggerIncidentMessage = {
+      type: 'TRIGGER_INCIDENT',
+      payload,
+    };
+    workerRef.current.postMessage(msg);
+  }, []);
+
+  // Clear active traffic incident
+  const clearIncident = useCallback(() => {
+    if (!workerRef.current) return;
+
+    setIsCalculating(true);
+    const msg: ClearIncidentMessage = {
+      type: 'CLEAR_INCIDENT',
+    };
+    workerRef.current.postMessage(msg);
+  }, []);
 
   // Snap arbitrary coordinate to junction via KD-Tree on background thread
   const snapCoordinate = useCallback((coord: Coordinates): Promise<{ node: TransitNode; distanceKm: number }> => {
@@ -190,8 +239,12 @@ export function useRoutingWorker(): UseRoutingWorkerReturn {
     graphStats,
     snappedOrigin,
     snappedDest,
+    activeIncident,
+    affectedEdgesCount,
     error,
     calculateRoute,
+    triggerIncident,
+    clearIncident,
     setSelectedRoute,
     snapCoordinate,
   };
