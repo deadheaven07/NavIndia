@@ -26,6 +26,8 @@ export interface UseRoutingWorkerReturn {
   snappedDest: TransitNode | null;
   activeIncident: TriggerIncidentPayload | null;
   affectedEdgesCount: number;
+  isMonsoonFlooded: boolean;
+  floodedEdgesCount: number;
   error: string | null;
   calculateRoute: (
     origin: string | Coordinates,
@@ -34,6 +36,8 @@ export interface UseRoutingWorkerReturn {
   ) => void;
   triggerIncident: (payload: TriggerIncidentPayload) => void;
   clearIncident: () => void;
+  triggerMonsoonFlood: () => void;
+  clearMonsoonFlood: () => void;
   setSelectedRoute: (route: RouteOption | null) => void;
   snapCoordinate: (coord: Coordinates) => Promise<{ node: TransitNode; distanceKm: number }>;
 }
@@ -69,6 +73,8 @@ export function useRoutingWorker(): UseRoutingWorkerReturn {
   const [snappedDest, setSnappedDest] = useState<TransitNode | null>(null);
   const [activeIncident, setActiveIncident] = useState<TriggerIncidentPayload | null>(null);
   const [affectedEdgesCount, setAffectedEdgesCount] = useState<number>(0);
+  const [isMonsoonFlooded, setIsMonsoonFlooded] = useState<boolean>(false);
+  const [floodedEdgesCount, setFloodedEdgesCount] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
 
   // Initialize Web Worker
@@ -92,6 +98,12 @@ export function useRoutingWorker(): UseRoutingWorkerReturn {
         case 'INCIDENT_STATUS': {
           setActiveIncident(msg.payload.activeIncident);
           setAffectedEdgesCount(msg.payload.affectedEdgesCount);
+          break;
+        }
+
+        case 'FLOOD_STATUS': {
+          setIsMonsoonFlooded(msg.payload.isMonsoonFlooded);
+          setFloodedEdgesCount(msg.payload.floodedEdgesCount);
           break;
         }
 
@@ -209,6 +221,26 @@ export function useRoutingWorker(): UseRoutingWorkerReturn {
     workerRef.current.postMessage(msg);
   }, []);
 
+  // Trigger Monsoon Flood Shockwave across low-lying Bengaluru basins
+  const triggerMonsoonFlood = useCallback(() => {
+    if (!workerRef.current) return;
+
+    setIsCalculating(true);
+    workerRef.current.postMessage({
+      type: 'TRIGGER_MONSOON_FLOOD',
+    });
+  }, []);
+
+  // Clear Monsoon Flood
+  const clearMonsoonFlood = useCallback(() => {
+    if (!workerRef.current) return;
+
+    setIsCalculating(true);
+    workerRef.current.postMessage({
+      type: 'CLEAR_MONSOON_FLOOD',
+    });
+  }, []);
+
   // Snap arbitrary coordinate to junction via KD-Tree on background thread
   const snapCoordinate = useCallback((coord: Coordinates): Promise<{ node: TransitNode; distanceKm: number }> => {
     return new Promise((resolve, reject) => {
@@ -241,10 +273,14 @@ export function useRoutingWorker(): UseRoutingWorkerReturn {
     snappedDest,
     activeIncident,
     affectedEdgesCount,
+    isMonsoonFlooded,
+    floodedEdgesCount,
     error,
     calculateRoute,
     triggerIncident,
     clearIncident,
+    triggerMonsoonFlood,
+    clearMonsoonFlood,
     setSelectedRoute,
     snapCoordinate,
   };

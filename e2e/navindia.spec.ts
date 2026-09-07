@@ -182,4 +182,45 @@ test.describe('NavIndia 3D Multi-Modal Transit Engine - End-to-End User Suite', 
       await page.waitForTimeout(1000);
     }
   });
+
+  test('User Flow 8: AI Commute Copilot, Natural Language Routing, and Monsoon Flood Shockwave', async ({ page }) => {
+    // 1. Verify Natural Language Search Bar
+    const nlInput = page.locator('input[placeholder*="Ask AI Copilot"]');
+    await expect(nlInput).toBeVisible();
+
+    // 2. Click a Quick Prompt pill
+    const promptBtn = page.locator('button').filter({ hasText: /Fastest from Indiranagar to Airport/i }).first();
+    await expect(promptBtn).toBeVisible();
+    await promptBtn.click();
+
+    // Wait for route recalculation
+    await page.waitForTimeout(1500);
+
+    // 3. Trigger Monsoon Flood Shockwave
+    const floodBtn = page.locator('button').filter({ hasText: /Trigger Monsoon Flood/i }).first();
+    await expect(floodBtn).toBeVisible();
+    await floodBtn.click();
+
+    // Verify alert banner appears
+    const floodAlert = page.locator('text=Bengaluru Monsoon Waterlogging Alert');
+    await expect(floodAlert).toBeVisible();
+
+    // 4. Open AI Commute Copilot Drawer
+    const copilotPill = page.locator('aside[aria-label="Bengaluru AI Commute Copilot"] button').first();
+    if (await copilotPill.isVisible()) {
+      await copilotPill.click();
+      await page.waitForTimeout(1000);
+    }
+
+    // Verify Copilot header and carbon intelligence are displayed
+    await expect(page.locator('text=AI Commute Copilot')).toBeVisible();
+    await expect(page.locator('text=Carbon Intelligence')).toBeVisible();
+
+    // 5. Clear Monsoon Flood Shockwave
+    const clearFloodBtn = page.locator('button').filter({ hasText: /Clear Monsoon Flood/i }).first();
+    if (await clearFloodBtn.isVisible()) {
+      await clearFloodBtn.click();
+      await page.waitForTimeout(1000);
+    }
+  });
 });

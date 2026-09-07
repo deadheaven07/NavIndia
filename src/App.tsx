@@ -12,7 +12,9 @@ import { Map3DViewport } from './components/map/Map3DViewport';
 import { HUDDeck } from './components/hud/HUDDeck';
 import { LatencyHUD } from './components/hud/LatencyHUD';
 import { EngineeringTelemetryHUD } from './components/hud/EngineeringTelemetryHUD';
-import { Zap } from 'lucide-react';
+import { NaturalLanguageSearchBar } from './components/ai/NaturalLanguageSearchBar';
+import { CommuteCopilotDrawer } from './components/ai/CommuteCopilotDrawer';
+import { Zap, CloudRain } from 'lucide-react';
 
 export function App() {
   // Theme State: Defaults to Light Theme
@@ -41,10 +43,14 @@ export function App() {
     snappedDest,
     activeIncident,
     affectedEdgesCount,
+    isMonsoonFlooded,
+    floodedEdgesCount,
     error: routingError,
     calculateRoute,
     triggerIncident,
     clearIncident,
+    triggerMonsoonFlood,
+    clearMonsoonFlood,
     setSelectedRoute,
   } = useRoutingWorker();
 
@@ -61,6 +67,15 @@ export function App() {
       });
     }
   }, [activeIncident, triggerIncident, clearIncident]);
+
+  // Toggle Monsoon Flood Shockwave across low-lying Bengaluru basins
+  const handleToggleMonsoonFlood = useCallback(() => {
+    if (isMonsoonFlooded) {
+      clearMonsoonFlood();
+    } else {
+      triggerMonsoonFlood();
+    }
+  }, [isMonsoonFlooded, triggerMonsoonFlood, clearMonsoonFlood]);
 
   // Origin & Destination targets (can be either node ID string or raw [lng, lat] Coordinates)
   const [originTarget, setOriginTarget] = useState<string | Coordinates>('majestic');
@@ -279,13 +294,31 @@ export function App() {
         isDarkMode={isDarkMode}
         onToggleTheme={() => setIsDarkMode(!isDarkMode)}
         activeIncident={activeIncident}
+        isMonsoonFlooded={isMonsoonFlooded}
       />
+
+      {/* Top Floating Natural Language Search Bar */}
+      <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-4 pointer-events-auto">
+        <NaturalLanguageSearchBar
+          nodes={hudNodes}
+          onRouteDispatched={(origin, dest) => {
+            setOriginTarget(origin);
+            setDestTarget(dest);
+            setCustomOriginCoord(null);
+            setCustomDestCoord(null);
+            calculateRoute(origin, dest, isPeakHour);
+            setSimulationProgress(0);
+            setIsSimulating(false);
+          }}
+          isCalculating={isCalculating}
+        />
+      </div>
 
       {/* Top Telemetry HUD */}
       <LatencyHUD telemetry={telemetry} graphStats={graphStats} />
 
-      {/* Quick-Action Button: Trigger Silk Board Gridlock Incident */}
-      <div className="absolute top-18 right-4 lg:right-auto lg:left-[460px] z-30 pointer-events-auto">
+      {/* Quick-Action Buttons: Silk Board & Monsoon Flood Shockwaves */}
+      <div className="absolute top-3.5 right-48 z-20 pointer-events-auto hidden md:flex items-center gap-2">
         <button
           type="button"
           onClick={handleToggleSilkBoardIncident}
@@ -299,11 +332,37 @@ export function App() {
           <Zap className={`w-3.5 h-3.5 ${activeIncident ? 'text-amber-300' : 'text-amber-500'}`} />
           <span>
             {activeIncident
-              ? `⚡ Clear Silk Board Gridlock (${affectedEdgesCount} Edges Throttled)`
-              : '⚡ Trigger Silk Board Gridlock Incident'}
+              ? `⚡ Clear Silk Board Gridlock (${affectedEdgesCount} Edges)`
+              : '⚡ Trigger Silk Board Gridlock'}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={handleToggleMonsoonFlood}
+          className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all shadow-lg flex items-center gap-1.5 border cursor-pointer ${
+            isMonsoonFlooded
+              ? 'bg-blue-600 text-white border-blue-400 animate-pulse shadow-blue-900/40 ring-2 ring-blue-300/60'
+              : 'glass-panel text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:border-blue-400 hover:text-blue-500'
+          }`}
+          title="🌧️ Trigger severe monsoon flood shockwave across low-lying underpasses"
+        >
+          <CloudRain className={`w-3.5 h-3.5 ${isMonsoonFlooded ? 'text-blue-200' : 'text-blue-400'}`} />
+          <span>
+            {isMonsoonFlooded
+              ? `🌧️ Clear Monsoon Flood (${floodedEdgesCount} Flooded)`
+              : '🌧️ Trigger Monsoon Flood'}
           </span>
         </button>
       </div>
+
+      {/* AI Commute Copilot Slide-out Drawer */}
+      <CommuteCopilotDrawer
+        selectedRoute={selectedRoute}
+        activeIncident={activeIncident}
+        isPeakHour={isPeakHour}
+        isMonsoonFlooded={isMonsoonFlooded}
+      />
 
       {/* Navigation HUD Deck Cockpit */}
       <HUDDeck
@@ -328,6 +387,9 @@ export function App() {
         onTogglePeakHour={handleTogglePeakHour}
         activeIncident={activeIncident}
         onToggleIncident={handleToggleSilkBoardIncident}
+        isMonsoonFlooded={isMonsoonFlooded}
+        onToggleMonsoonFlood={handleToggleMonsoonFlood}
+        floodedEdgesCount={floodedEdgesCount}
       />
 
       {/* Live Engineering Telemetry & Observability HUD (Bottom Right) */}

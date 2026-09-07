@@ -69,6 +69,46 @@ function getRouteGeoJSON(route: RouteOption | null): GeoJSON.FeatureCollection<G
   };
 }
 
+function generateCirclePolygon(center: Coordinates, radiusKm: number, points = 32): Coordinates[] {
+  const coords: Coordinates[] = [];
+  const kmPerLat = 111.32;
+  const kmPerLng = 111.32 * Math.cos((center[1] * Math.PI) / 180);
+
+  for (let i = 0; i <= points; i++) {
+    const angle = (i / points) * 2 * Math.PI;
+    const dLng = (radiusKm * Math.cos(angle)) / kmPerLng;
+    const dLat = (radiusKm * Math.sin(angle)) / kmPerLat;
+    coords.push([center[0] + dLng, center[1] + dLat]);
+  }
+  return coords;
+}
+
+function getFloodGeoJSON(active: boolean): GeoJSON.FeatureCollection<GeoJSON.Polygon> {
+  if (!active) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+
+  const zones = [
+    { name: 'Bellandur EcoSpace Basin', center: [77.6844, 12.926] as Coordinates, radiusKm: 1.8 },
+    { name: 'Silk Board Choke Point', center: [77.6229, 12.9177] as Coordinates, radiusKm: 2.0 },
+    { name: 'Hebbal Flyover Ramp', center: [77.5925, 13.0358] as Coordinates, radiusKm: 2.2 },
+    { name: 'Rainbow Drive Sarjapur', center: [77.7085, 12.908] as Coordinates, radiusKm: 1.5 },
+  ];
+
+  return {
+    type: 'FeatureCollection',
+    features: zones.map((z, idx) => ({
+      type: 'Feature',
+      id: `flood_${idx}`,
+      properties: { name: z.name, risk: 'HIGH' },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [generateCirclePolygon(z.center, z.radiusKm)],
+      },
+    })),
+  };
+}
+
 interface Map3DViewportProps {
   nodes: TransitNode[];
   selectedRoute: RouteOption | null;
@@ -86,6 +126,7 @@ interface Map3DViewportProps {
   isDarkMode: boolean;
   onToggleTheme: () => void;
   activeIncident?: TriggerIncidentPayload | null;
+  isMonsoonFlooded?: boolean;
 }
 
 // 8 Curated Iconic Transit Hubs that deserve permanent landmark badges (Tier 2)
@@ -117,6 +158,7 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
   isDarkMode,
   onToggleTheme,
   activeIncident,
+  isMonsoonFlooded = false,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -336,11 +378,48 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
             },
           });
         }
+
+        // D. Monsoon Flood Chokepoints (Waterlogged Polygons)
+        if (!map.getSource('monsoon-flood-source')) {
+          map.addSource('monsoon-flood-source', {
+            type: 'geojson',
+            data: getFloodGeoJSON(isMonsoonFlooded),
+          });
+        } else {
+          const fs = map.getSource('monsoon-flood-source') as maplibregl.GeoJSONSource;
+          fs.setData(getFloodGeoJSON(isMonsoonFlooded));
+        }
+
+        if (!map.getLayer('monsoon-flood-fill')) {
+          map.addLayer({
+            id: 'monsoon-flood-fill',
+            type: 'fill',
+            source: 'monsoon-flood-source',
+            paint: {
+              'fill-color': '#0284c7',
+              'fill-opacity': isMonsoonFlooded ? 0.35 : 0.0,
+            },
+          });
+          map.addLayer({
+            id: 'monsoon-flood-outline',
+            type: 'line',
+            source: 'monsoon-flood-source',
+            paint: {
+              'line-color': '#38bdf8',
+              'line-width': 2.5,
+              'line-dasharray': [2, 2],
+              'line-opacity': isMonsoonFlooded ? 0.85 : 0.0,
+            },
+          });
+        } else {
+          map.setPaintProperty('monsoon-flood-fill', 'fill-opacity', isMonsoonFlooded ? 0.35 : 0.0);
+          map.setPaintProperty('monsoon-flood-outline', 'line-opacity', isMonsoonFlooded ? 0.85 : 0.0);
+        }
       } catch (err) {
         console.warn('Transient error attaching custom layers:', err);
       }
     },
-    [nodes, selectedRoute, is3DBuildingsVisible, isNetworkGridVisible]
+    [nodes, selectedRoute, is3DBuildingsVisible, isNetworkGridVisible, isMonsoonFlooded]
   );
 
   // 1. Initialize MapLibre 3D Viewport with GPU WebGL layers
@@ -681,7 +760,9 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
         map.easeTo({
           center: [curLng, curLat],
           duration: 120,
-          pitch: cameraMode === 'PLAN' ? 0 : cameraMode === 'CHASE' ? 75 : 62,
+          pitch: cameraMode === 'PLAN' ? 0 : cameraMode === 'CHASE' ? 78 : 62,
+          bearing: cameraMode === 'CHASE' ? angleDeg : cameraMode === 'PLAN' ? 0 : -20,
+          zoom: cameraMode === 'CHASE' ? 16.5 : undefined,
           easing: (t) => t,
         });
       }

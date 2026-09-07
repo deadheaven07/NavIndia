@@ -13,6 +13,7 @@
     "ingest:osm": "tsx scripts/ingest-osm.ts"
   },
   "dependencies": {
+    "@google/genai": "^2.21.0",
     "@tailwindcss/vite": "^4.3.3",
     "lucide-react": "^1.42.0",
     "maplibre-gl": "^6.7.0",

@@ -24,6 +24,23 @@ export interface TransitEdge {
   pathCoordinates?: Coordinates[];
   metroLineName?: string;
   instruction?: string;
+  surgeMultiplier?: number;
+  co2Grams?: number;
+  isFlooded?: boolean;
+}
+
+export interface TriggerIncidentPayload {
+  center: Coordinates; // [lng, lat]
+  radiusKm: number;
+  severityMultiplier: number;
+  name: string;
+}
+
+export interface MonsoonFloodZone {
+  name: string;
+  center: Coordinates;
+  radiusKm: number;
+  severityMultiplier: number;
 }
 
 export interface RouteLeg {
@@ -36,6 +53,9 @@ export interface RouteLeg {
   trafficMultiplier: number;
   instruction: string;
   pathCoordinates: Coordinates[];
+  co2Grams?: number;
+  surgeMultiplier?: number;
+  isFlooded?: boolean;
 }
 
 export type RouteArchetype = 'FASTEST_CAB' | 'SMART_MULTIMODAL' | 'BUDGET_BUS';
@@ -53,6 +73,9 @@ export interface RouteOption {
   totalDistanceKm: number;
   transfersCount: number;
   carbonKg: number;
+  co2Grams?: number;
+  isSurgeApplied?: boolean;
+  isFloodedRoute?: boolean;
   caloriesBurned: number;
   arrivalEta: string;
   legs: RouteLeg[];

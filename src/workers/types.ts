@@ -50,6 +50,26 @@ export interface ClearIncidentMessage {
   id?: string;
 }
 
+export interface MonsoonFloodPayload {
+  floodedZones: {
+    name: string;
+    center: Coordinates;
+    radiusKm: number;
+    severityMultiplier: number;
+  }[];
+}
+
+export interface TriggerMonsoonFloodMessage {
+  type: 'TRIGGER_MONSOON_FLOOD';
+  id?: string;
+  payload?: MonsoonFloodPayload;
+}
+
+export interface ClearMonsoonFloodMessage {
+  type: 'CLEAR_MONSOON_FLOOD';
+  id?: string;
+}
+
 export interface GetStatsMessage {
   type: 'GET_STATS';
 }
@@ -60,6 +80,8 @@ export type RoutingWorkerInboundMessage =
   | SetPeakHourMessage
   | TriggerIncidentMessage
   | ClearIncidentMessage
+  | TriggerMonsoonFloodMessage
+  | ClearMonsoonFloodMessage
   | GetStatsMessage;
 
 // Outbound messages (Worker -> Main Thread)
@@ -100,6 +122,14 @@ export interface IncidentStatusResponse {
   };
 }
 
+export interface FloodStatusResponse {
+  type: 'FLOOD_STATUS';
+  payload: {
+    isMonsoonFlooded: boolean;
+    floodedEdgesCount: number;
+  };
+}
+
 export interface WorkerErrorResponse {
   type: 'ERROR';
   id?: string;
@@ -113,4 +143,5 @@ export type RoutingWorkerOutboundMessage =
   | RouteResultResponse
   | SnapResultResponse
   | IncidentStatusResponse
+  | FloodStatusResponse
   | WorkerErrorResponse;

@@ -12,6 +12,7 @@ import {
   BarChart3,
   ShieldCheck,
   Zap,
+  CloudRain,
 } from 'lucide-react';
 import type { RouteOption, TransitNode } from '../../algorithms/types';
 import type { TriggerIncidentPayload } from '../../workers/types';
@@ -35,6 +36,9 @@ interface HUDDeckProps {
   onTogglePeakHour: () => void;
   activeIncident?: TriggerIncidentPayload | null;
   onToggleIncident?: () => void;
+  isMonsoonFlooded?: boolean;
+  onToggleMonsoonFlood?: () => void;
+  floodedEdgesCount?: number;
 }
 
 export const HUDDeck: React.FC<HUDDeckProps> = ({
@@ -55,6 +59,9 @@ export const HUDDeck: React.FC<HUDDeckProps> = ({
   onTogglePeakHour,
   activeIncident,
   onToggleIncident,
+  isMonsoonFlooded = false,
+  onToggleMonsoonFlood,
+  floodedEdgesCount = 0,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'ROUTES' | 'MATRIX'>('ROUTES');
@@ -131,7 +138,7 @@ export const HUDDeck: React.FC<HUDDeckProps> = ({
                 type="button"
                 onClick={onToggleIncident}
                 title="Toggle Incident"
-                className={`p-2 rounded-full border transition-all ${
+                className={`p-2 rounded-full border transition-all cursor-pointer ${
                   activeIncident
                     ? 'bg-rose-500 border-rose-600 text-white animate-pulse'
                     : 'bg-amber-100 dark:bg-amber-900/40 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400'
@@ -141,12 +148,28 @@ export const HUDDeck: React.FC<HUDDeckProps> = ({
               </button>
             )}
 
+            {/* Monsoon Flood Trigger */}
+            {onToggleMonsoonFlood && (
+              <button
+                type="button"
+                onClick={onToggleMonsoonFlood}
+                title="Toggle Monsoon Flood Shockwave (simulates low-lying road waterlogging)"
+                className={`p-2 rounded-full border transition-all cursor-pointer ${
+                  isMonsoonFlooded
+                    ? 'bg-blue-600 border-blue-500 text-white animate-pulse shadow-lg shadow-blue-500/30 ring-2 ring-blue-300/60'
+                    : 'bg-blue-100 dark:bg-blue-950/50 border-blue-300 dark:border-blue-800 text-blue-700 dark:text-blue-400 hover:scale-105'
+                }`}
+              >
+                <CloudRain className="w-3.5 h-3.5" />
+              </button>
+            )}
+
             {/* Peak Traffic Mode Switcher */}
             <button
               type="button"
               onClick={onTogglePeakHour}
               title="Toggle Peak Rush Hour Jam (multiplies road delay to showcase Metro resilience)"
-              className={`flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full border transition-all shadow-2xs ${
+              className={`flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full border transition-all shadow-2xs cursor-pointer ${
                 isPeakHour
                   ? 'bg-rose-100 dark:bg-rose-500/20 border-rose-300 dark:border-rose-500/60 text-rose-800 dark:text-rose-300 animate-pulse'
                   : 'bg-slate-100 dark:bg-slate-800/60 border-slate-300 dark:border-slate-700/60 text-slate-600 dark:text-slate-400 hover:text-slate-900'
@@ -165,6 +188,16 @@ export const HUDDeck: React.FC<HUDDeckProps> = ({
               <span>⚠️ {activeIncident.name}</span>
             </div>
             <span className="font-mono font-extrabold">{activeIncident.severityMultiplier}x Delay</span>
+          </div>
+        )}
+
+        {/* Dynamic Monsoon Flood Alert Banner */}
+        {isMonsoonFlooded && (
+          <div className="mt-2 px-3 py-2 rounded-xl bg-blue-100 dark:bg-blue-950/60 border border-blue-300 dark:border-blue-700 flex items-center justify-between text-[11px] text-blue-800 dark:text-blue-300 animate-pulse">
+            <div className="flex items-center gap-1.5 font-bold">
+              <span>🌧️ Bengaluru Monsoon Waterlogging Alert</span>
+            </div>
+            <span className="font-mono font-extrabold">{floodedEdgesCount || 34} Road Chokepoints (6x Penalty)</span>
           </div>
         )}
 

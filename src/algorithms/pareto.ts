@@ -257,6 +257,13 @@ export class ParetoFrontierSolver {
         fullGeometry.push(toNode.coordinates);
       }
 
+      const legSurge = edge.surgeMultiplier || 1.0;
+      let legCo2Grams = 0;
+      if (edge.mode === 'CAB') legCo2Grams = edge.distanceKm * 150;
+      else if (edge.mode === 'AUTO') legCo2Grams = edge.distanceKm * 82;
+      else if (edge.mode === 'BUS') legCo2Grams = edge.distanceKm * 42;
+      else if (edge.mode === 'METRO') legCo2Grams = edge.distanceKm * 18;
+
       legs.push({
         mode: edge.mode,
         fromNode,
@@ -267,22 +274,26 @@ export class ParetoFrontierSolver {
         trafficMultiplier: edge.trafficMultiplier || 1.0,
         instruction: edge.instruction || `${edge.mode} towards ${toNode.name}`,
         pathCoordinates: edge.pathCoordinates || [fromNode.coordinates, toNode.coordinates],
+        surgeMultiplier: legSurge,
+        co2Grams: Math.round(legCo2Grams),
+        isFlooded: edge.isFlooded || false,
       });
     }
 
-    // Estimate CO2 footprint in kg (Cab ~ 0.17 kg/km, Auto ~ 0.08 kg/km, Bus ~ 0.03 kg/km, Metro ~ 0.015 kg/km)
-    let carbonKg = 0;
+    // Estimate CO2 footprint in kg (Cab ~ 0.15 kg/km, Auto ~ 0.082 kg/km, Bus ~ 0.042 kg/km, Metro ~ 0.018 kg/km)
+    let totalCo2Grams = 0;
     for (const leg of legs) {
-      if (leg.mode === 'CAB') carbonKg += leg.distanceKm * 0.17;
-      else if (leg.mode === 'AUTO') carbonKg += leg.distanceKm * 0.08;
-      else if (leg.mode === 'BUS') carbonKg += leg.distanceKm * 0.03;
-      else if (leg.mode === 'METRO') carbonKg += leg.distanceKm * 0.015;
+      totalCo2Grams += leg.co2Grams || 0;
     }
+    const carbonKg = totalCo2Grams / 1000;
 
     const fareBreakdown = Array.from(fareMap.entries()).map(([mode, cost]) => ({
       mode,
       cost: Math.round(cost),
     }));
+
+    const isSurgeApplied = legs.some((l) => (l.surgeMultiplier || 1.0) > 1.05);
+    const isFloodedRoute = legs.some((l) => l.isFlooded);
 
     return {
       id,
@@ -297,6 +308,9 @@ export class ParetoFrontierSolver {
       totalDistanceKm: result.totalDistanceKm,
       transfersCount: result.transfersCount,
       carbonKg: Math.round(carbonKg * 10) / 10,
+      co2Grams: Math.round(totalCo2Grams),
+      isSurgeApplied,
+      isFloodedRoute,
       caloriesBurned: Math.round(totalWalkingKm * 65),
       arrivalEta: calculateArrivalEta(result.totalDurationMinutes),
       legs,
