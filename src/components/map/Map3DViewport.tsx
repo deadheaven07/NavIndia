@@ -59,36 +59,13 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
-    const tileUrl = isDarkMode
-      ? 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'
-      : 'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png';
+    const mapStyle = isDarkMode
+      ? 'https://tiles.openfreemap.org/styles/dark'
+      : 'https://tiles.openfreemap.org/styles/positron';
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: {
-        version: 8,
-        sources: {
-          'osm-tiles': {
-            type: 'raster',
-            tiles: [
-              tileUrl,
-              tileUrl.replace('//a.', '//b.'),
-              tileUrl.replace('//a.', '//c.'),
-            ],
-            tileSize: 256,
-            attribution: '© CartoDB, © OpenStreetMap',
-          },
-        },
-        layers: [
-          {
-            id: 'osm-tiles-layer',
-            type: 'raster',
-            source: 'osm-tiles',
-            minzoom: 0,
-            maxzoom: 20,
-          },
-        ],
-      },
+      style: mapStyle,
       center: [77.625, 12.965], // Center of Bengaluru transit corridor
       zoom: 12.6,
       pitch: 60, // 3D Camera Tilt
