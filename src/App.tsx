@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   PRIMARY_TRANSIT_HUBS,
+  SCALED_BENGALURU_NODES,
 } from './algorithms/data/bengaluru-network-scaled';
 import type {
   Coordinates,
@@ -240,7 +241,7 @@ export function App() {
     <div className="relative w-screen h-screen overflow-hidden bg-slate-950 text-slate-100 select-none">
       {/* 3D Map Viewport Layer */}
       <Map3DViewport
-        nodes={PRIMARY_TRANSIT_HUBS}
+        nodes={SCALED_BENGALURU_NODES}
         selectedRoute={selectedRoute}
         originNode={snappedOrigin}
         destNode={snappedDest}
