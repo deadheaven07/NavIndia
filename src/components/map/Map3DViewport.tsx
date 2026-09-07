@@ -6,8 +6,6 @@ import { generateBengaluru3DBuildings } from '../../algorithms/data/bengaluru-ne
 import {
   Layers,
   Compass,
-  Sun,
-  Moon,
   Train,
   Car,
   Zap,
@@ -31,8 +29,6 @@ interface Map3DViewportProps {
   isCalculating?: boolean;
   simulationProgress: number; // 0 to 1
   isSimulating: boolean;
-  isDarkMode: boolean;
-  onToggleTheme: () => void;
 }
 
 export const Map3DViewport: React.FC<Map3DViewportProps> = ({
@@ -49,8 +45,6 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
   isCalculating = false,
   simulationProgress,
   isSimulating,
-  isDarkMode,
-  onToggleTheme,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -76,9 +70,7 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
-    const mapStyle = isDarkMode
-      ? 'https://tiles.openfreemap.org/styles/dark'
-      : 'https://tiles.openfreemap.org/styles/positron';
+    const mapStyle = 'https://tiles.openfreemap.org/styles/dark';
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
@@ -114,12 +106,12 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
             'interpolate',
             ['linear'],
             ['get', 'height'],
-            20, isDarkMode ? '#1e293b' : '#cbd5e1',
-            50, isDarkMode ? '#0284c7' : '#93c5fd',
-            80, isDarkMode ? '#06b6d4' : '#38bdf8',
-            110, isDarkMode ? '#38bdf8' : '#0284c7',
+            20, '#1e293b',
+            50, '#0284c7',
+            80, '#06b6d4',
+            110, '#38bdf8',
           ],
-          'fill-extrusion-opacity': isDarkMode ? 0.88 : 0.92,
+          'fill-extrusion-opacity': 0.88,
         },
       });
 
@@ -144,7 +136,7 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
         paint: {
           'line-color': ['get', 'color'],
           'line-width': 14,
-          'line-opacity': isDarkMode ? 0.35 : 0.35,
+          'line-opacity': 0.35,
           'line-blur': 6,
         },
       });
@@ -246,7 +238,7 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
       setIsMapReady(false);
       map.remove();
     };
-  }, [isDarkMode]);
+  }, []);
 
   // Update Route Polyline & Dynamic Camera Fly-To when Selected Route Changes or Map Becomes Ready
   useEffect(() => {
@@ -500,13 +492,13 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
   };
 
   return (
-    <div className="relative w-full h-full bg-slate-100 dark:bg-slate-950">
+    <div className="relative w-full h-full bg-slate-950">
       <div ref={mapContainerRef} className="w-full h-full" />
 
       {/* Turn-by-Turn Real-Time Navigation Banner (Top Center below LatencyHUD) */}
       {selectedRoute && currentStep && (
         <div className="absolute top-18 left-1/2 -translate-x-1/2 z-20 pointer-events-auto max-w-[90vw] md:max-w-xl">
-          <div className="glass-panel px-4 py-2.5 rounded-2xl shadow-xl border border-sky-200 dark:border-slate-800 flex items-center gap-3">
+          <div className="glass-panel px-4 py-2.5 rounded-2xl shadow-xl border border-slate-800 flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl bg-sky-600 text-white flex items-center justify-center shrink-0 shadow-md">
               {currentStep.mode === 'METRO' ? (
                 <Train className="w-4 h-4" />
@@ -516,19 +508,19 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-sky-700 dark:text-cyan-400">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-cyan-400">
                   {isSimulating ? 'Live Navigation' : 'Next Step'}
                 </span>
                 <span className="text-[10px] font-mono text-slate-400">
                   {currentStep.distanceKm} km · {currentStep.durationMinutes} mins
                 </span>
               </div>
-              <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+              <p className="text-xs font-bold text-slate-100 truncate">
                 {currentStep.instruction}
               </p>
             </div>
             <div className="text-right shrink-0 pr-1">
-              <span className="text-xs font-mono font-black text-slate-800 dark:text-slate-200">
+              <span className="text-xs font-mono font-black text-slate-200">
                 ₹{currentStep.costINR}
               </span>
             </div>
@@ -538,26 +530,6 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
 
       {/* Floating 3D Perspective & Camera Controls (Top Right) */}
       <div className="absolute top-4 right-4 z-20 flex flex-col gap-2 pointer-events-auto">
-        {/* Theme Toggle Pill */}
-        <button
-          type="button"
-          onClick={onToggleTheme}
-          className="glass-panel px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between gap-2 shadow-md border border-slate-200 dark:border-slate-800"
-          title="Toggle Light / Dark theme"
-        >
-          <div className="flex items-center gap-1.5">
-            {isDarkMode ? (
-              <Moon className="w-3.5 h-3.5 text-indigo-400" />
-            ) : (
-              <Sun className="w-3.5 h-3.5 text-amber-500" />
-            )}
-            <span>{isDarkMode ? 'Dark Theme' : 'Light Theme'}</span>
-          </div>
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-            {isDarkMode ? 'DARK' : 'LIGHT'}
-          </span>
-        </button>
-
         {/* Camera Perspective Mode Selector */}
         <div className="glass-panel p-1 rounded-xl shadow-md border border-slate-200 dark:border-slate-800 flex gap-1">
           <button

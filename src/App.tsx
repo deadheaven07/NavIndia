@@ -12,16 +12,10 @@ import { HUDDeck } from './components/hud/HUDDeck';
 import { LatencyHUD } from './components/hud/LatencyHUD';
 
 export function App() {
-  // Theme State: Defaults to Light Theme
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
-
+  // Permanent Dark Theme Enforcement
   useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [isDarkMode]);
+    document.documentElement.classList.add('dark');
+  }, []);
 
   // Traffic / Peak hour state
   const [isPeakHour, setIsPeakHour] = useState<boolean>(false);
@@ -237,7 +231,7 @@ export function App() {
   const destId = typeof destTarget === 'string' ? destTarget : snappedDest?.id || 'dest_point';
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 select-none">
+    <div className="relative w-screen h-screen overflow-hidden bg-slate-950 text-slate-100 select-none">
       {/* 3D Map Viewport Layer */}
       <Map3DViewport
         nodes={PRIMARY_TRANSIT_HUBS}
@@ -255,8 +249,6 @@ export function App() {
         isCalculating={isCalculating}
         simulationProgress={simulationProgress}
         isSimulating={isSimulating}
-        isDarkMode={isDarkMode}
-        onToggleTheme={() => setIsDarkMode(!isDarkMode)}
       />
 
       {/* Top Telemetry HUD */}
