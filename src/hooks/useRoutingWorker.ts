@@ -29,6 +29,9 @@ export interface UseRoutingWorkerReturn {
   isMonsoonFlooded: boolean;
   floodedEdgesCount: number;
   error: string | null;
+  currentCity: 'bengaluru' | 'delhi';
+  cityNodes: TransitNode[] | null;
+  switchCity: (cityId: 'bengaluru' | 'delhi') => void;
   calculateRoute: (
     origin: string | Coordinates,
     destination: string | Coordinates,
@@ -69,6 +72,8 @@ export function useRoutingWorker(): UseRoutingWorkerReturn {
   const [selectedRoute, setSelectedRoute] = useState<RouteOption | null>(null);
   const [telemetry, setTelemetry] = useState<RouteComputationTelemetry | null>(null);
   const [graphStats, setGraphStats] = useState<GraphStats>(DEFAULT_GRAPH_STATS);
+  const [currentCity, setCurrentCity] = useState<'bengaluru' | 'delhi'>('bengaluru');
+  const [cityNodes, setCityNodes] = useState<TransitNode[] | null>(null);
   const [snappedOrigin, setSnappedOrigin] = useState<TransitNode | null>(null);
   const [snappedDest, setSnappedDest] = useState<TransitNode | null>(null);
   const [activeIncident, setActiveIncident] = useState<TriggerIncidentPayload | null>(null);
@@ -92,6 +97,18 @@ export function useRoutingWorker(): UseRoutingWorkerReturn {
         case 'WORKER_READY': {
           setIsReady(true);
           setGraphStats(msg.payload.graphStats);
+          break;
+        }
+
+        case 'CITY_SWITCHED': {
+          setCurrentCity(msg.payload.cityId);
+          setGraphStats(msg.payload.graphStats);
+          setCityNodes(msg.payload.nodes);
+          setRoutes([]);
+          setSelectedRoute(null);
+          setSnappedOrigin(null);
+          setSnappedDest(null);
+          setIsCalculating(false);
           break;
         }
 
@@ -262,6 +279,15 @@ export function useRoutingWorker(): UseRoutingWorkerReturn {
     });
   }, []);
 
+  // Switch active city in Web Worker
+  const switchCity = useCallback((cityId: 'bengaluru' | 'delhi') => {
+    if (!workerRef.current) return;
+    workerRef.current.postMessage({
+      type: 'SWITCH_CITY',
+      payload: { cityId },
+    });
+  }, []);
+
   return {
     isReady,
     isCalculating,
@@ -269,6 +295,9 @@ export function useRoutingWorker(): UseRoutingWorkerReturn {
     selectedRoute,
     telemetry,
     graphStats,
+    currentCity,
+    cityNodes,
+    switchCity,
     snappedOrigin,
     snappedDest,
     activeIncident,

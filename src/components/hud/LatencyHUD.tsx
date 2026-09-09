@@ -9,7 +9,7 @@ interface LatencyHUDProps {
 
 export const LatencyHUD: React.FC<LatencyHUDProps> = ({ telemetry, graphStats }) => {
   return (
-    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
+    <div className="absolute top-15 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
       <div className="glass-panel px-4 py-2 rounded-full flex items-center gap-4 text-xs font-mono text-slate-700 dark:text-slate-300 shadow-xl border border-slate-200 dark:border-cyan-500/20 pointer-events-auto">
         {/* Live System Indicator */}
         <div className="flex items-center gap-2 pr-3 border-r border-slate-200 dark:border-slate-700/60">

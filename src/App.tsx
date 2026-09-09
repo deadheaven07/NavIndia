@@ -3,6 +3,10 @@ import {
   PRIMARY_TRANSIT_HUBS,
   SCALED_BENGALURU_NODES,
 } from './algorithms/data/bengaluru-network-scaled';
+import {
+  DELHI_PRIMARY_TRANSIT_HUBS,
+} from './algorithms/data/delhi-network-scaled';
+import { CITIES, type CityId } from './algorithms/data/cities';
 import type {
   Coordinates,
   RouteOption,
@@ -14,6 +18,7 @@ import { LatencyHUD } from './components/hud/LatencyHUD';
 import { EngineeringTelemetryHUD } from './components/hud/EngineeringTelemetryHUD';
 import { NaturalLanguageSearchBar } from './components/ai/NaturalLanguageSearchBar';
 import { CommuteCopilotDrawer } from './components/ai/CommuteCopilotDrawer';
+import { TurnByTurnNavOverlay } from './components/hud/TurnByTurnNavOverlay';
 import { Zap, CloudRain } from 'lucide-react';
 
 export function App() {
@@ -31,6 +36,9 @@ export function App() {
   // Traffic / Peak hour state
   const [isPeakHour, setIsPeakHour] = useState<boolean>(false);
 
+  // Turn-by-turn Commuter Navigation HUD State
+  const [isNavOverlayOpen, setIsNavOverlayOpen] = useState<boolean>(false);
+
   // Dedicated Web Worker Hook for Graph building, KD-Tree Snapping & Pareto A* Routing
   const {
     isReady,
@@ -46,6 +54,9 @@ export function App() {
     isMonsoonFlooded,
     floodedEdgesCount,
     error: routingError,
+    currentCity,
+    cityNodes,
+    switchCity,
     calculateRoute,
     triggerIncident,
     clearIncident,
@@ -53,29 +64,6 @@ export function App() {
     clearMonsoonFlood,
     setSelectedRoute,
   } = useRoutingWorker();
-
-  // Toggle Dynamic Incident Shockwave at Silk Board Junction
-  const handleToggleSilkBoardIncident = useCallback(() => {
-    if (activeIncident) {
-      clearIncident();
-    } else {
-      triggerIncident({
-        center: [77.6229, 12.9177], // Central Silk Board Interchange
-        radiusKm: 2.5,
-        severityMultiplier: 3.5,
-        name: 'Silk Board Central Gridlock',
-      });
-    }
-  }, [activeIncident, triggerIncident, clearIncident]);
-
-  // Toggle Monsoon Flood Shockwave across low-lying Bengaluru basins
-  const handleToggleMonsoonFlood = useCallback(() => {
-    if (isMonsoonFlooded) {
-      clearMonsoonFlood();
-    } else {
-      triggerMonsoonFlood();
-    }
-  }, [isMonsoonFlooded, triggerMonsoonFlood, clearMonsoonFlood]);
 
   // Origin & Destination targets (can be either node ID string or raw [lng, lat] Coordinates)
   const [originTarget, setOriginTarget] = useState<string | Coordinates>('majestic');
@@ -90,6 +78,68 @@ export function App() {
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
   const [simulationProgress, setSimulationProgress] = useState<number>(0);
   const simulationRef = useRef<number | null>(null);
+
+  // Switch City Handler
+  const handleSwitchCity = useCallback(
+    (newCity: CityId) => {
+      if (newCity === currentCity) return;
+      const config = CITIES[newCity];
+      switchCity(newCity);
+      setOriginTarget(config.defaultOriginId);
+      setDestTarget(config.defaultDestId);
+      setCustomOriginCoord(null);
+      setCustomDestCoord(null);
+      setSimulationProgress(0);
+      setIsSimulating(false);
+      setIsNavOverlayOpen(false);
+      calculateRoute(config.defaultOriginId, config.defaultDestId, isPeakHour);
+    },
+    [currentCity, switchCity, isPeakHour, calculateRoute]
+  );
+
+  // Toggle Dynamic Incident Shockwave (Silk Board in Bengaluru / Rajiv Chowk in Delhi)
+  const handleToggleIncident = useCallback(() => {
+    if (activeIncident) {
+      clearIncident();
+    } else {
+      if (currentCity === 'delhi') {
+        triggerIncident({
+          center: [77.2183, 28.6328], // Central Rajiv Chowk / CP Inner Circle
+          radiusKm: 2.2,
+          severityMultiplier: 3.5,
+          name: 'Connaught Place Inner Circle Jam',
+        });
+      } else {
+        triggerIncident({
+          center: [77.6229, 12.9177], // Central Silk Board Interchange
+          radiusKm: 2.5,
+          severityMultiplier: 3.5,
+          name: 'Silk Board Central Gridlock',
+        });
+      }
+    }
+  }, [activeIncident, currentCity, triggerIncident, clearIncident]);
+
+  // Toggle Monsoon Flood Shockwave across low-lying basins
+  const handleToggleMonsoonFlood = useCallback(() => {
+    if (isMonsoonFlooded) {
+      clearMonsoonFlood();
+    } else {
+      triggerMonsoonFlood();
+    }
+  }, [isMonsoonFlooded, triggerMonsoonFlood, clearMonsoonFlood]);
+
+  // Handle GPS location tracking
+  const handleLocateUser = useCallback(
+    (coord: Coordinates) => {
+      setCustomOriginCoord(coord);
+      setOriginTarget(coord);
+      calculateRoute(coord, destTarget, isPeakHour);
+      setSimulationProgress(0);
+      setIsSimulating(false);
+    },
+    [destTarget, isPeakHour, calculateRoute]
+  );
 
   // Trigger initial route calculation once Web Worker finishes instantiation
   useEffect(() => {
@@ -172,8 +222,18 @@ export function App() {
     setSimulationProgress(0);
   }, []);
 
+  // Handle Turn-by-Turn Navigation toggle
+  const handleToggleNavigation = useCallback(() => {
+    setIsNavOverlayOpen((prev) => {
+      const next = !prev;
+      if (next && !isSimulating) {
+        setIsSimulating(true);
+      }
+      return next;
+    });
+  }, [isSimulating]);
+
   // Handle arbitrary 3D Map Canvas Click
-  // Dispatches directly to Web Worker: KD-Tree snaps in O(log N) and re-routes without dropping a frame
   const handleMapCoordinateClick = useCallback(
     (coord: Coordinates) => {
       if (pinTargetMode === 'ORIGIN') {
@@ -257,9 +317,19 @@ export function App() {
     calculateRoute(originTarget, destTarget, nextPeak);
   }, [isPeakHour, originTarget, destTarget, calculateRoute]);
 
+  // Active nodes for the 3D Map Viewport based on selected city
+  const activeCityNodes = useMemo(() => {
+    if (currentCity === 'delhi') {
+      return cityNodes && cityNodes.length > 0 ? cityNodes : DELHI_PRIMARY_TRANSIT_HUBS;
+    }
+    return SCALED_BENGALURU_NODES;
+  }, [currentCity, cityNodes]);
+
   // Combined nodes for HUD dropdowns: primary metro/landmark hubs + snapped custom points
   const hudNodes = useMemo(() => {
-    const base = [...PRIMARY_TRANSIT_HUBS];
+    const base = currentCity === 'delhi'
+      ? (cityNodes && cityNodes.length > 0 ? cityNodes.slice(0, 35) : [...DELHI_PRIMARY_TRANSIT_HUBS])
+      : [...PRIMARY_TRANSIT_HUBS];
     if (snappedOrigin && !base.some((n) => n.id === snappedOrigin.id)) {
       base.unshift(snappedOrigin);
     }
@@ -267,7 +337,7 @@ export function App() {
       base.unshift(snappedDest);
     }
     return base;
-  }, [snappedOrigin, snappedDest]);
+  }, [currentCity, cityNodes, snappedOrigin, snappedDest]);
 
   const originId = typeof originTarget === 'string' ? originTarget : snappedOrigin?.id || 'origin_point';
   const destId = typeof destTarget === 'string' ? destTarget : snappedDest?.id || 'dest_point';
@@ -276,7 +346,7 @@ export function App() {
     <div className="relative w-screen h-screen overflow-hidden bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 select-none">
       {/* 3D Map Viewport Layer */}
       <Map3DViewport
-        nodes={SCALED_BENGALURU_NODES}
+        nodes={activeCityNodes}
         selectedRoute={selectedRoute}
         originNode={snappedOrigin}
         destNode={snappedDest}
@@ -295,9 +365,49 @@ export function App() {
         onToggleTheme={() => setIsDarkMode(!isDarkMode)}
         activeIncident={activeIncident}
         isMonsoonFlooded={isMonsoonFlooded}
+        currentCity={currentCity}
+        onLocateUser={handleLocateUser}
       />
 
-      {/* Top Floating Natural Language Search Bar */}
+      {/* Top Left: Pan-India Multi-City Switcher */}
+      <div className="absolute top-3.5 left-4 z-30 pointer-events-auto flex items-center gap-2">
+        <div className="glass-panel px-3 py-1.5 rounded-2xl flex items-center gap-2.5 border border-slate-200 dark:border-slate-800 shadow-xl backdrop-blur-xl">
+          <div className="flex items-center gap-1.5 font-bold text-xs text-slate-800 dark:text-slate-100">
+            <span className="text-base leading-none">🇮🇳</span>
+            <span>{CITIES[currentCity].name}</span>
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800 hidden sm:inline">
+              {CITIES[currentCity].metroBrand}
+            </span>
+          </div>
+
+          <div className="flex items-center bg-slate-200/80 dark:bg-slate-800/80 p-0.5 rounded-xl text-[11px] font-semibold">
+            <button
+              type="button"
+              onClick={() => handleSwitchCity('bengaluru')}
+              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                currentCity === 'bengaluru'
+                  ? 'bg-white dark:bg-slate-700 text-sky-600 dark:text-cyan-400 shadow-sm font-bold'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              Bengaluru
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSwitchCity('delhi')}
+              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                currentCity === 'delhi'
+                  ? 'bg-white dark:bg-slate-700 text-sky-600 dark:text-cyan-400 shadow-sm font-bold'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              Delhi NCR
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Top Floating Natural Language Search Bar with Voice Input */}
       <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-4 pointer-events-auto">
         <NaturalLanguageSearchBar
           nodes={hudNodes}
@@ -317,22 +427,28 @@ export function App() {
       {/* Top Telemetry HUD */}
       <LatencyHUD telemetry={telemetry} graphStats={graphStats} />
 
-      {/* Quick-Action Buttons: Silk Board & Monsoon Flood Shockwaves */}
+      {/* Quick-Action Buttons: Gridlock Incident & Monsoon Flood Shockwaves */}
       <div className="absolute top-3.5 right-48 z-20 pointer-events-auto hidden md:flex items-center gap-2">
         <button
           type="button"
-          onClick={handleToggleSilkBoardIncident}
+          onClick={handleToggleIncident}
           className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all shadow-lg flex items-center gap-1.5 border cursor-pointer ${
             activeIncident
               ? 'bg-rose-600 text-white border-rose-400 animate-pulse shadow-rose-900/40'
               : 'glass-panel text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:border-amber-400 hover:text-amber-500'
           }`}
-          title="⚡ Trigger severe real-time traffic disruption at Central Silk Board"
+          title={
+            currentCity === 'delhi'
+              ? '⚡ Trigger severe real-time traffic disruption at Connaught Place Inner Circle'
+              : '⚡ Trigger severe real-time traffic disruption at Central Silk Board'
+          }
         >
           <Zap className={`w-3.5 h-3.5 ${activeIncident ? 'text-amber-300' : 'text-amber-500'}`} />
           <span>
             {activeIncident
-              ? `⚡ Clear Silk Board Gridlock (${affectedEdgesCount} Edges)`
+              ? `⚡ Clear Gridlock (${affectedEdgesCount} Edges)`
+              : currentCity === 'delhi'
+              ? '⚡ Trigger CP Gridlock'
               : '⚡ Trigger Silk Board Gridlock'}
           </span>
         </button>
@@ -345,7 +461,11 @@ export function App() {
               ? 'bg-blue-600 text-white border-blue-400 animate-pulse shadow-blue-900/40 ring-2 ring-blue-300/60'
               : 'glass-panel text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:border-blue-400 hover:text-blue-500'
           }`}
-          title="🌧️ Trigger severe monsoon flood shockwave across low-lying underpasses"
+          title={
+            currentCity === 'delhi'
+              ? '🌧️ Trigger severe monsoon flood shockwave across Minto Bridge & Yamuna floodplains'
+              : '🌧️ Trigger severe monsoon flood shockwave across low-lying underpasses'
+          }
         >
           <CloudRain className={`w-3.5 h-3.5 ${isMonsoonFlooded ? 'text-blue-200' : 'text-blue-400'}`} />
           <span>
@@ -386,10 +506,21 @@ export function App() {
         isPeakHour={isPeakHour}
         onTogglePeakHour={handleTogglePeakHour}
         activeIncident={activeIncident}
-        onToggleIncident={handleToggleSilkBoardIncident}
+        onToggleIncident={handleToggleIncident}
         isMonsoonFlooded={isMonsoonFlooded}
         onToggleMonsoonFlood={handleToggleMonsoonFlood}
         floodedEdgesCount={floodedEdgesCount}
+        currentCity={currentCity}
+        onStartNavigation={handleToggleNavigation}
+        isNavActive={isNavOverlayOpen}
+      />
+
+      {/* Mobile & Desktop Turn-by-Turn Commuter Navigation HUD Overlay */}
+      <TurnByTurnNavOverlay
+        route={selectedRoute}
+        isOpen={isNavOverlayOpen}
+        onClose={() => setIsNavOverlayOpen(false)}
+        simulationProgress={simulationProgress}
       />
 
       {/* Live Engineering Telemetry & Observability HUD (Bottom Right) */}

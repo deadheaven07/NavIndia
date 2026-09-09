@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   Zap,
   CloudRain,
+  Navigation,
 } from 'lucide-react';
 import type { RouteOption, TransitNode } from '../../algorithms/types';
 import type { TriggerIncidentPayload } from '../../workers/types';
@@ -39,6 +40,9 @@ interface HUDDeckProps {
   isMonsoonFlooded?: boolean;
   onToggleMonsoonFlood?: () => void;
   floodedEdgesCount?: number;
+  currentCity?: 'bengaluru' | 'delhi';
+  onStartNavigation?: () => void;
+  isNavActive?: boolean;
 }
 
 export const HUDDeck: React.FC<HUDDeckProps> = ({
@@ -62,12 +66,15 @@ export const HUDDeck: React.FC<HUDDeckProps> = ({
   isMonsoonFlooded = false,
   onToggleMonsoonFlood,
   floodedEdgesCount = 0,
+  currentCity = 'bengaluru',
+  onStartNavigation,
+  isNavActive = false,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'ROUTES' | 'MATRIX'>('ROUTES');
   const [modeFilter, setModeFilter] = useState<'ALL' | 'METRO' | 'CAB' | 'BUDGET'>('ALL');
 
-  const quickCorridors = [
+  const blrQuickCorridors = [
     {
       title: 'Majestic ➔ Whitefield ITPL',
       from: 'majestic',
@@ -93,6 +100,35 @@ export const HUDDeck: React.FC<HUDDeckProps> = ({
       desc: 'Outer Ring Road choke point',
     },
   ];
+
+  const delQuickCorridors = [
+    {
+      title: 'Rajiv Chowk ➔ Cyber City',
+      from: 'delhi_rajiv_chowk',
+      to: 'delhi_cyber_city',
+      desc: 'Connaught Place to Gurgaon IT Hub',
+    },
+    {
+      title: 'Kashmere Gate ➔ Noida Sec 18',
+      from: 'delhi_kashmere_gate',
+      to: 'delhi_noida_sec_18',
+      desc: 'ISBT Inter-State to Noida Center',
+    },
+    {
+      title: 'New Delhi ➔ IGI Airport T3',
+      from: 'delhi_new_delhi',
+      to: 'delhi_igi_airport_t3',
+      desc: 'High-speed Orange Line Airport Express',
+    },
+    {
+      title: 'Hauz Khas ➔ Cyber City',
+      from: 'delhi_hauz_khas',
+      to: 'delhi_cyber_city',
+      desc: 'South Delhi to Millennium City Corridor',
+    },
+  ];
+
+  const quickCorridors = currentCity === 'delhi' ? delQuickCorridors : blrQuickCorridors;
 
   const filteredRoutes = routes.filter((route) => {
     if (modeFilter === 'ALL') return true;
@@ -434,10 +470,26 @@ export const HUDDeck: React.FC<HUDDeckProps> = ({
 
               {/* Simulation Controls */}
               <div className="flex items-center gap-1.5">
+                {onStartNavigation && (
+                  <button
+                    type="button"
+                    onClick={onStartNavigation}
+                    className={`p-2.5 rounded-xl font-extrabold shadow-md transition-all flex items-center gap-1.5 text-xs cursor-pointer ${
+                      isNavActive
+                        ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/25 ring-2 ring-emerald-400 animate-pulse'
+                        : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/25'
+                    }`}
+                    title="Open Turn-by-Turn Mobile Commuter Navigation HUD"
+                  >
+                    <Navigation className="w-3.5 h-3.5" />
+                    <span>{isNavActive ? 'Close HUD' : 'Turn-by-Turn'}</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={onToggleSimulation}
-                  className="p-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-extrabold shadow-md shadow-sky-600/25 transition-all flex items-center gap-1.5 text-xs"
+                  className="p-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-extrabold shadow-md shadow-sky-600/25 transition-all flex items-center gap-1.5 text-xs cursor-pointer"
                 >
                   {isSimulating ? (
                     <>
@@ -454,7 +506,7 @@ export const HUDDeck: React.FC<HUDDeckProps> = ({
                 <button
                   type="button"
                   onClick={onResetSimulation}
-                  className="p-2.5 rounded-xl glass-button text-slate-600 dark:text-slate-400 hover:text-slate-900 text-xs font-bold"
+                  className="p-2.5 rounded-xl glass-button text-slate-600 dark:text-slate-400 hover:text-slate-900 text-xs font-bold cursor-pointer"
                   title="Reset Simulation"
                 >
                   Reset

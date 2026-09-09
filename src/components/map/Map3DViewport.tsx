@@ -3,6 +3,10 @@ import * as maplibregl from 'maplibre-gl';
 import type { Coordinates, RouteOption, TransitNode } from '../../algorithms/types';
 import type { TriggerIncidentPayload } from '../../workers/types';
 import { generateBengaluru3DBuildings } from '../../algorithms/data/bengaluru-network-scaled';
+import { generateDelhi3DBuildings } from '../../algorithms/data/delhi-network-scaled';
+import { CITIES } from '../../algorithms/data/cities';
+import { TransitFleetSimulation } from './TransitFleetLayer';
+import { RainCanvasOverlay } from './RainCanvasOverlay';
 import {
   Layers,
   Compass,
@@ -13,6 +17,7 @@ import {
   Navigation,
   Sun,
   Moon,
+  Locate,
 } from 'lucide-react';
 
 function round5(num: number): number {
@@ -83,17 +88,29 @@ function generateCirclePolygon(center: Coordinates, radiusKm: number, points = 3
   return coords;
 }
 
-function getFloodGeoJSON(active: boolean): GeoJSON.FeatureCollection<GeoJSON.Polygon> {
+function getFloodGeoJSON(
+  active: boolean,
+  city: 'bengaluru' | 'delhi' = 'bengaluru'
+): GeoJSON.FeatureCollection<GeoJSON.Polygon> {
   if (!active) {
     return { type: 'FeatureCollection', features: [] };
   }
 
-  const zones = [
+  const blrZones = [
     { name: 'Bellandur EcoSpace Basin', center: [77.6844, 12.926] as Coordinates, radiusKm: 1.8 },
     { name: 'Silk Board Choke Point', center: [77.6229, 12.9177] as Coordinates, radiusKm: 2.0 },
     { name: 'Hebbal Flyover Ramp', center: [77.5925, 13.0358] as Coordinates, radiusKm: 2.2 },
     { name: 'Rainbow Drive Sarjapur', center: [77.7085, 12.908] as Coordinates, radiusKm: 1.5 },
   ];
+
+  const delZones = [
+    { name: 'Minto Bridge Underpass Basin', center: [77.2255, 28.6375] as Coordinates, radiusKm: 1.5 },
+    { name: 'DND Toll & Yamuna Floodplain', center: [77.2750, 28.5810] as Coordinates, radiusKm: 2.2 },
+    { name: 'Pul Prahladpur Railway Underpass', center: [77.2880, 28.5020] as Coordinates, radiusKm: 1.8 },
+    { name: 'AIIMS Ring Road Basin', center: [77.2085, 28.5710] as Coordinates, radiusKm: 1.4 },
+  ];
+
+  const zones = city === 'delhi' ? delZones : blrZones;
 
   return {
     type: 'FeatureCollection',
@@ -127,10 +144,13 @@ interface Map3DViewportProps {
   onToggleTheme: () => void;
   activeIncident?: TriggerIncidentPayload | null;
   isMonsoonFlooded?: boolean;
+  currentCity?: 'bengaluru' | 'delhi';
+  onLocateUser?: (coord: Coordinates) => void;
 }
 
-// 8 Curated Iconic Transit Hubs that deserve permanent landmark badges (Tier 2)
+// Curated Iconic Transit Hubs with permanent landmark badges (Tier 2)
 const CURATED_LANDMARK_IDS = new Set([
+  // Bengaluru
   'majestic',
   'silk_board',
   'whitefield_itpl',
@@ -139,6 +159,15 @@ const CURATED_LANDMARK_IDS = new Set([
   'electronic_city',
   'purple_mg_road',
   'indiranagar_metro',
+  // Delhi NCR
+  'delhi_rajiv_chowk',
+  'delhi_cyber_city',
+  'delhi_new_delhi',
+  'delhi_igi_airport_t3',
+  'delhi_hauz_khas',
+  'delhi_kashmere_gate',
+  'delhi_noida_sec_18',
+  'delhi_india_gate',
 ]);
 
 export const Map3DViewport: React.FC<Map3DViewportProps> = ({
@@ -159,6 +188,8 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
   onToggleTheme,
   activeIncident,
   isMonsoonFlooded = false,
+  currentCity = 'bengaluru',
+  onLocateUser,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -166,11 +197,24 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
   const odMarkersRef = useRef<{ origin?: maplibregl.Marker; dest?: maplibregl.Marker }>({});
   const incidentMarkerRef = useRef<maplibregl.Marker | null>(null);
   const simVehicleMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const userGpsMarkerRef = useRef<maplibregl.Marker | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const currentStyleRef = useRef<string>('');
-
+  const fleetSimRef = useRef<TransitFleetSimulation>(new TransitFleetSimulation());
+  const currentCityRef = useRef<'bengaluru' | 'delhi'>(currentCity);
   const [is3DBuildingsVisible, setIs3DBuildingsVisible] = useState<boolean>(true);
   const [isNetworkGridVisible, setIsNetworkGridVisible] = useState<boolean>(true);
+  const [isFleetVisible, setIsFleetVisible] = useState<boolean>(true);
+  const isFleetVisibleRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    currentCityRef.current = currentCity;
+  }, [currentCity]);
+
+  useEffect(() => {
+    isFleetVisibleRef.current = isFleetVisible;
+  }, [isFleetVisible]);
+
   const [isMapReady, setIsMapReady] = useState<boolean>(false);
   const [currentPitch, setCurrentPitch] = useState<number>(60);
   const [currentBearing, setCurrentBearing] = useState<number>(-20);
@@ -190,7 +234,10 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
       try {
         // A. 3D Extruded Buildings Layer
         if (!map.getSource('3d-buildings-source')) {
-          const buildingsGeoJSON = generateBengaluru3DBuildings();
+          const buildingsGeoJSON =
+            currentCityRef.current === 'delhi'
+              ? generateDelhi3DBuildings()
+              : generateBengaluru3DBuildings();
           map.addSource('3d-buildings-source', {
             type: 'geojson',
             data: buildingsGeoJSON,
@@ -383,11 +430,11 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
         if (!map.getSource('monsoon-flood-source')) {
           map.addSource('monsoon-flood-source', {
             type: 'geojson',
-            data: getFloodGeoJSON(isMonsoonFlooded),
+            data: getFloodGeoJSON(isMonsoonFlooded, currentCityRef.current),
           });
         } else {
           const fs = map.getSource('monsoon-flood-source') as maplibregl.GeoJSONSource;
-          fs.setData(getFloodGeoJSON(isMonsoonFlooded));
+          fs.setData(getFloodGeoJSON(isMonsoonFlooded, currentCityRef.current));
         }
 
         if (!map.getLayer('monsoon-flood-fill')) {
@@ -414,6 +461,60 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
         } else {
           map.setPaintProperty('monsoon-flood-fill', 'fill-opacity', isMonsoonFlooded ? 0.35 : 0.0);
           map.setPaintProperty('monsoon-flood-outline', 'line-opacity', isMonsoonFlooded ? 0.85 : 0.0);
+        }
+
+        // E. Live Transit Fleet (Moving Metro Trains & City Buses)
+        if (!map.getSource('transit-fleet-source')) {
+          map.addSource('transit-fleet-source', {
+            type: 'geojson',
+            data: fleetSimRef.current.getGeoJSON(currentCityRef.current || 'bengaluru'),
+          });
+
+          // Fleet Pulse Halo
+          map.addLayer({
+            id: 'transit-fleet-halo',
+            type: 'circle',
+            source: 'transit-fleet-source',
+            paint: {
+              'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 8, 15, 14],
+              'circle-color': ['get', 'lineColor'],
+              'circle-opacity': 0.35,
+              'circle-stroke-width': 1.5,
+              'circle-stroke-color': '#ffffff',
+            },
+          });
+
+          // Fleet Core Dot
+          map.addLayer({
+            id: 'transit-fleet-core',
+            type: 'circle',
+            source: 'transit-fleet-source',
+            paint: {
+              'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 15, 7],
+              'circle-color': ['get', 'lineColor'],
+              'circle-stroke-width': 2,
+              'circle-stroke-color': '#ffffff',
+            },
+          });
+
+          // Fleet Text Label
+          map.addLayer({
+            id: 'transit-fleet-label',
+            type: 'symbol',
+            source: 'transit-fleet-source',
+            layout: {
+              'text-field': ['get', 'label'],
+              'text-size': 11,
+              'text-offset': [0, 1.3],
+              'text-anchor': 'top',
+              'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+            },
+            paint: {
+              'text-color': isDark ? '#ffffff' : '#0f172a',
+              'text-halo-color': isDark ? '#020617' : '#ffffff',
+              'text-halo-width': 2,
+            },
+          });
         }
       } catch (err) {
         console.warn('Transient error attaching custom layers:', err);
@@ -467,6 +568,20 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
                 4,
               ]);
             }
+
+            // Live Moving Transit Fleet (Metro Trains & Buses)
+            if (fleetSimRef.current && isFleetVisibleRef.current) {
+              fleetSimRef.current.tick(0.06);
+              if (
+                currentMap &&
+                currentMap.isStyleLoaded() &&
+                currentMap.getSource('transit-fleet-source')
+              ) {
+                (currentMap.getSource('transit-fleet-source') as maplibregl.GeoJSONSource).setData(
+                  fleetSimRef.current.getGeoJSON(currentCityRef.current || 'bengaluru')
+                );
+              }
+            }
           } catch {
             // Ignore transient sprite/dashatlas initialization during style reloading
           }
@@ -474,6 +589,32 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
         animationFrameRef.current = requestAnimationFrame(animateDash);
       };
       animationFrameRef.current = requestAnimationFrame(animateDash);
+
+      // Hover tooltip on active transit vehicles
+      const fleetPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12 });
+
+      map.on('mouseenter', 'transit-fleet-core', (e) => {
+        map.getCanvas().style.cursor = 'pointer';
+        const feature = e.features?.[0];
+        if (!feature || feature.geometry.type !== 'Point') return;
+        const coords = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
+        const props = feature.properties as any;
+        fleetPopup
+          .setLngLat(coords)
+          .setHTML(
+            `<div style="font-family: sans-serif; font-size: 11px; padding: 4px; color: #0f172a; min-width: 140px;">
+              <strong style="color: #0284c7;">${props.label}</strong><br/>
+              <span>Next: <b>${props.nextStation}</b></span><br/>
+              <span>Speed: <b>${props.speedKmh} km/h</b> • <b>${props.occupancy}</b></span>
+            </div>`
+          )
+          .addTo(map);
+      });
+
+      map.on('mouseleave', 'transit-fleet-core', () => {
+        map.getCanvas().style.cursor = '';
+        fleetPopup.remove();
+      });
 
       setIsMapReady(true);
     });
@@ -502,6 +643,35 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
       map.remove();
     };
   }, []);
+
+  // City Transition effect: fly camera and reload 3D buildings
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isMapReady || !currentCity) return;
+
+    const cityCfg = CITIES[currentCity];
+    if (cityCfg) {
+      map.flyTo({
+        center: cityCfg.center,
+        zoom: cityCfg.zoom,
+        pitch: cityCfg.pitch,
+        bearing: cityCfg.bearing,
+        essential: true,
+      });
+
+      if (map.getSource('3d-buildings-source')) {
+        const buildingsGeoJSON =
+          currentCity === 'delhi' ? generateDelhi3DBuildings() : generateBengaluru3DBuildings();
+        (map.getSource('3d-buildings-source') as maplibregl.GeoJSONSource).setData(buildingsGeoJSON);
+      }
+
+      if (map.getSource('monsoon-flood-source')) {
+        (map.getSource('monsoon-flood-source') as maplibregl.GeoJSONSource).setData(
+          getFloodGeoJSON(isMonsoonFlooded, currentCity)
+        );
+      }
+    }
+  }, [currentCity, isMapReady, isMonsoonFlooded]);
 
   // 2. Dynamic Style Switching on isDarkMode Toggle
   useEffect(() => {
@@ -815,10 +985,69 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
     }
   }, [isNetworkGridVisible]);
 
+  const toggleFleet = useCallback(() => {
+    if (!mapRef.current) return;
+    const nextVal = !isFleetVisible;
+    setIsFleetVisible(nextVal);
+    isFleetVisibleRef.current = nextVal;
+    if (mapRef.current.isStyleLoaded()) {
+      const vis = nextVal ? 'visible' : 'none';
+      if (mapRef.current.getLayer('transit-fleet-halo')) mapRef.current.setLayoutProperty('transit-fleet-halo', 'visibility', vis);
+      if (mapRef.current.getLayer('transit-fleet-core')) mapRef.current.setLayoutProperty('transit-fleet-core', 'visibility', vis);
+      if (mapRef.current.getLayer('transit-fleet-label')) mapRef.current.setLayoutProperty('transit-fleet-label', 'visibility', vis);
+    }
+  }, [isFleetVisible]);
+
+  const handleLocateMe = useCallback(() => {
+    if (!('geolocation' in navigator)) {
+      alert('Geolocation is not supported in this browser.');
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const coords: Coordinates = [pos.coords.longitude, pos.coords.latitude];
+        if (onLocateUser) {
+          onLocateUser(coords);
+        } else {
+          onMapCoordinateClick(coords);
+        }
+
+        const map = mapRef.current;
+        if (map) {
+          if (!userGpsMarkerRef.current) {
+            const el = document.createElement('div');
+            el.className =
+              'w-6 h-6 rounded-full bg-sky-500 border-2 border-white shadow-lg animate-pulse flex items-center justify-center text-white cursor-pointer';
+            el.innerHTML = '<span class="w-2.5 h-2.5 rounded-full bg-white"></span>';
+            userGpsMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat(coords).addTo(map);
+          } else {
+            userGpsMarkerRef.current.setLngLat(coords);
+          }
+
+          map.flyTo({
+            center: coords,
+            zoom: 14.5,
+            pitch: 60,
+            essential: true,
+          });
+        }
+      },
+      (err) => {
+        console.warn('Geolocation error:', err.message);
+        alert(`Could not fetch current GPS location: ${err.message}`);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }, [onLocateUser, onMapCoordinateClick]);
+
   return (
     <div className="relative w-full h-full overflow-hidden select-none bg-slate-100 dark:bg-slate-950 transition-colors duration-300">
       {/* MapLibre WebGL Canvas Container */}
       <div ref={mapContainerRef} className="w-full h-full cursor-crosshair" />
+
+      {/* 3D Monsoon Rain Particle Overlay */}
+      <RainCanvasOverlay active={isMonsoonFlooded} />
 
       {/* Turn-by-Turn Real-Time Navigation Banner (Top Center below LatencyHUD) */}
       {selectedRoute && currentStep && (
@@ -912,8 +1141,32 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
           </button>
         </div>
 
-        {/* Action Button Row: 3D Buildings, 1,500-Node WebGL Grid, Compass */}
+        {/* Action Button Row: GPS, Fleet, 3D Buildings, 1,500-Node Grid, Compass */}
         <div className="flex items-center gap-2 self-end">
+          {/* GPS Live Geolocation Locate Me */}
+          <button
+            type="button"
+            onClick={handleLocateMe}
+            title="Snap to Current GPS Location (Locate Me)"
+            className="glass-button p-2.5 rounded-xl cursor-pointer hover:text-sky-500 transition-colors"
+          >
+            <Locate className="w-4 h-4 text-sky-500" />
+          </button>
+
+          {/* Toggle Live Moving Transit Fleet */}
+          <button
+            type="button"
+            onClick={toggleFleet}
+            title="Toggle Live Moving Metro Trains & City Buses"
+            className={`p-2.5 rounded-xl backdrop-blur-md border transition-all shadow-lg cursor-pointer ${
+              isFleetVisible
+                ? 'bg-purple-100 dark:bg-purple-950/80 border-purple-400 dark:border-purple-500/50 text-purple-700 dark:text-purple-300'
+                : 'glass-button'
+            }`}
+          >
+            <Train className="w-4 h-4" />
+          </button>
+
           {/* Toggle 3D Buildings */}
           <button
             type="button"
@@ -989,7 +1242,7 @@ export const Map3DViewport: React.FC<Map3DViewportProps> = ({
       {/* Real-Time HUD Coordinate & GPU WebGL Telemetry Readout (Bottom Left) */}
       <div className="absolute bottom-3 left-4 z-20 flex items-center gap-3 px-3 py-1.5 rounded-lg bg-white/90 dark:bg-slate-950/80 backdrop-blur-md border border-slate-200 dark:border-slate-800 text-[10px] font-mono text-slate-600 dark:text-slate-400 pointer-events-none shadow-sm">
         <div className="flex items-center gap-1 text-sky-600 dark:text-cyan-400">
-          <Zap className="w-3 h-3" />
+          <Zap className="w-3.5 h-3.5" />
           <span>GPU WebGL Locked 60 FPS</span>
         </div>
         <span className="text-slate-300 dark:text-slate-600">|</span>

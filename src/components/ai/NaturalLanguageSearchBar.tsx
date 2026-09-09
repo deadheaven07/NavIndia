@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Sparkles, ArrowRight, Loader2, Compass } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Sparkles, ArrowRight, Loader2, Compass, Mic, MicOff } from 'lucide-react';
 import { parseCommuteIntent, type ParsedCommuteIntent } from '../../services/gemini';
 import type { TransitNode } from '../../algorithms/types';
 
@@ -24,6 +24,67 @@ export const NaturalLanguageSearchBar: React.FC<NaturalLanguageSearchBarProps> =
   const [prompt, setPrompt] = useState<string>('');
   const [isAiProcessing, setIsAiProcessing] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [isListening, setIsListening] = useState<boolean>(false);
+  const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
+    };
+  }, []);
+
+  const toggleVoiceInput = () => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setStatusMessage('Voice recognition is not supported in this browser. Please use Chrome/Edge or Safari.');
+      return;
+    }
+
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-IN';
+      recognition.interimResults = true;
+      recognition.continuous = false;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setStatusMessage('🎙️ Listening... Speak your origin, destination or commute preference.');
+      };
+
+      recognition.onresult = (event: any) => {
+        const transcript = Array.from(event.results)
+          .map((r: any) => r[0].transcript)
+          .join('');
+        setPrompt(transcript);
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+        setStatusMessage(`Mic error: ${event.error}. Try typing your route.`);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.error('Failed to start speech recognition:', err);
+      setIsListening(false);
+    }
+  };
 
   const handleSearch = async (queryText?: string) => {
     const textToSearch = queryText || prompt;
@@ -100,6 +161,24 @@ export const NaturalLanguageSearchBar: React.FC<NaturalLanguageSearchBarProps> =
             className="w-full bg-transparent text-sm text-slate-100 placeholder-slate-400 focus:outline-none font-medium"
             disabled={isAiProcessing || isCalculating}
           />
+
+          {/* Voice Input Button */}
+          <button
+            type="button"
+            onClick={toggleVoiceInput}
+            title={isListening ? 'Stop listening' : 'Voice commute search (Hands-Free)'}
+            className={`p-2 rounded-xl border transition-all cursor-pointer mr-1 shrink-0 ${
+              isListening
+                ? 'bg-rose-500/20 border-rose-500 text-rose-400 animate-pulse ring-2 ring-rose-500/40'
+                : 'bg-slate-800/80 hover:bg-slate-700/80 border-slate-700 text-slate-300 hover:text-sky-300'
+            }`}
+          >
+            {isListening ? (
+              <MicOff className="w-4 h-4 text-rose-400 animate-bounce" />
+            ) : (
+              <Mic className="w-4 h-4 text-slate-300" />
+            )}
+          </button>
 
           <button
             onClick={() => handleSearch()}

@@ -58,7 +58,29 @@ NavIndia (SuperRoute) is a production-grade 3D multi-modal urban navigation and 
   - `2D Plan (0°)`: Top-down orthographic navigation view.
 - **Turn-by-Turn Dynamic HUD**: Top floating navigation banner with live step directions, distance remaining, and transit fares.
 
-### 2. Glassmorphic HUD Deck (`/components/hud/`)
+### 2. Live Moving Transit Fleet Engine (`/components/map/TransitFleetLayer.ts`)
+- **Real-Time Moving Metro Trains & Electric Buses**: Simulates active metro trains (Purple Line, Green Line, DMRC Yellow Line, Airport Express) and city buses traversing actual track and road geometry at authentic transit velocities.
+- **Dynamic Dwell Times**: Realistic 20-30s station dwell times for passenger boarding/alighting with acceleration and deceleration profiles.
+- **Interactive Telemetry Popups**: Hover over any live vehicle on the 3D map to inspect real-time speed (km/h), next station ETA, line color, and crowd occupancy levels.
+
+### 3. Voice Input & Hands-Free Audio Commute Copilot (`/components/ai/`)
+- **Speech-to-Text Natural Language Search**: Integrated microphone button utilizing native browser `webkitSpeechRecognition` / `SpeechRecognition` to dictate routes hands-free (e.g. *"Route from Rajiv Chowk to Cyber City"* or *"Majestic to Whitefield avoiding Silk Board"*).
+- **Text-to-Speech Audio Commute Advisor**: Listen to AI-generated route summaries, traffic warnings, and multimodal transfer instructions via `window.speechSynthesis` audio playback.
+
+### 4. Pan-India Multi-City Expansion: Delhi NCR Multimodal Network (`/algorithms/data/delhi-network-scaled.ts`)
+- **DMRC Metro Network**: DMRC Yellow Line (Kashmere Gate to Gurgaon Millennium City Centre), Blue Line (Dwarka to Noida Electronic City), and high-speed Orange Line Airport Express (New Delhi Railway Station to IGI Airport Terminal 3).
+- **3D Extruded Delhi Landmarks**: Architectural 3D buildings around DLF Cyber City (up to 125m high-rises), Connaught Place inner/outer circles, Aerocity tech parks, and Nehru Place IT district.
+- **One-Click City Switcher**: Seamlessly toggle between **Bengaluru** (Namma Metro + BMTC) and **Delhi NCR** (DMRC + DTC) with instantaneous camera fly-to animations and route recalculations.
+
+### 5. Live GPS Location Tracking & Mobile Turn-by-Turn Navigation HUD (`/components/hud/TurnByTurnNavOverlay.tsx`)
+- **Live Device Geolocation (`navigator.geolocation`)**: One-tap "Locate Me" button instantly centers the camera on the user's current GPS position, snaps to the nearest transit network junction in $<1\text{ms}$ via 2D KD-Tree, and designates it as the origin.
+- **Mobile Turn-by-Turn Commuter HUD**: Floating navigational HUD with mode badges (Train, Bus, Cab, Auto, Walk), distance counters, next maneuver preview, and native mobile haptic feedback (`navigator.vibrate`).
+
+### 6. Dynamic 3D Canvas Monsoon Rain & Flood Risk Heatmap (`/components/map/RainCanvasOverlay.tsx`)
+- **60 FPS Monsoon Rain Particles**: Hardware-accelerated 2D/3D canvas particle system rendering dynamic angled raindrops and expanding splash impact ripples over the map.
+- **Low-Lying Waterlogging Shockwaves**: Pulsing semi-transparent flood risk danger zones covering known urban choke points (Bengaluru: Bellandur EcoSpace, Silk Board; Delhi NCR: Minto Bridge Underpass, DND Yamuna Floodplain).
+
+### 7. Glassmorphic HUD Deck (`/components/hud/`)
 - **Light Theme Default**: Crisp white glassmorphism (`rgba(255, 255, 255, 0.88)` with `backdrop-filter: blur(20px)`), high-contrast slate typography, and instant dark mode toggle.
 - **Proportional Multi-Modal Timeline Bar**: Visual segmented duration indicator showing exact percentage of Metro vs Cab vs Auto vs Walk.
 - **Pareto Trade-Off Matrix**: Side-by-side comparative table analyzing Duration, Total Fare (₹), Transfers Count, and CO₂ footprint across all 3 archetypes.

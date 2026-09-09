@@ -1,4 +1,5 @@
 import { generateScaledBengaluruNetwork } from '../algorithms/data/bengaluru-network-scaled';
+import { generateScaledDelhiNetwork } from '../algorithms/data/delhi-network-scaled';
 import { SpatialKDTree } from '../algorithms/kdtree';
 import { ParetoFrontierSolver } from '../algorithms/pareto';
 import type { Coordinates } from '../algorithms/types';
@@ -9,6 +10,7 @@ import type {
 } from './types';
 
 // State maintained inside dedicated worker background thread
+let currentCityId: 'bengaluru' | 'delhi' = 'bengaluru';
 let isPeakHourState = false;
 let isMonsoonFloodedState = false;
 let activeIncident: TriggerIncidentPayload | null = null;
@@ -21,6 +23,13 @@ export const BENGALURU_MONSOON_FLOOD_ZONES = [
   { name: 'Silk Board & Madiwala Lake Basin', center: [77.6229, 12.9177] as Coordinates, radiusKm: 2.0, severityMultiplier: 5.5 },
   { name: 'Hebbal Underpass & Nagavara Lake', center: [77.5925, 13.0358] as Coordinates, radiusKm: 2.2, severityMultiplier: 5.0 },
   { name: 'Rainbow Drive / Sarjapur Choke', center: [77.7085, 12.9080] as Coordinates, radiusKm: 1.5, severityMultiplier: 6.0 },
+];
+
+export const DELHI_MONSOON_FLOOD_ZONES = [
+  { name: 'Minto Bridge Underpass Basin', center: [77.2255, 28.6375] as Coordinates, radiusKm: 1.5, severityMultiplier: 6.0 },
+  { name: 'DND Toll & Yamuna Floodplain', center: [77.2750, 28.5810] as Coordinates, radiusKm: 2.2, severityMultiplier: 5.5 },
+  { name: 'Pul Prahladpur Railway Underpass', center: [77.2880, 28.5020] as Coordinates, radiusKm: 1.8, severityMultiplier: 5.5 },
+  { name: 'AIIMS Ring Road Basin', center: [77.2085, 28.5710] as Coordinates, radiusKm: 1.4, severityMultiplier: 4.8 },
 ];
 
 let { nodes, graph, stats } = generateScaledBengaluruNetwork(isPeakHourState);
@@ -43,13 +52,18 @@ function haversineDistance(c1: Coordinates, c2: Coordinates): number {
 }
 
 function rebuildGraphWithIncident(): { affectedIncident: number; affectedFlooded: number } {
-  const generated = generateScaledBengaluruNetwork(isPeakHourState);
+  const generated =
+    currentCityId === 'delhi'
+      ? generateScaledDelhiNetwork(isPeakHourState)
+      : generateScaledBengaluruNetwork(isPeakHourState);
+
   nodes = generated.nodes;
   graph = generated.graph;
   stats = generated.stats;
 
   let affectedIncident = 0;
   let affectedFlooded = 0;
+  const floodZones = currentCityId === 'delhi' ? DELHI_MONSOON_FLOOD_ZONES : BENGALURU_MONSOON_FLOOD_ZONES;
 
   for (const edge of graph.getAllEdges()) {
     // Dynamic surge pricing based on peak hours
@@ -70,7 +84,7 @@ function rebuildGraphWithIncident(): { affectedIncident: number; affectedFlooded
       const tgtNode = graph.getNode(edge.target);
       if (!srcNode || !tgtNode) continue;
 
-      // 1. Incident shockwave (e.g. Silk Board gridlock)
+      // 1. Incident shockwave (e.g. Silk Board gridlock or DND Flyway)
       if (activeIncident) {
         const { center, radiusKm, severityMultiplier } = activeIncident;
         const d1 = haversineDistance(srcNode.coordinates, center);
@@ -85,7 +99,7 @@ function rebuildGraphWithIncident(): { affectedIncident: number; affectedFlooded
 
       // 2. Monsoon flood shockwave (waterlogged low-lying catchment zones)
       if (isMonsoonFloodedState) {
-        for (const zone of BENGALURU_MONSOON_FLOOD_ZONES) {
+        for (const zone of floodZones) {
           const d1 = haversineDistance(srcNode.coordinates, zone.center);
           const d2 = haversineDistance(tgtNode.coordinates, zone.center);
 
@@ -338,6 +352,38 @@ self.onmessage = (e: MessageEvent<RoutingWorkerInboundMessage>) => {
           },
         };
         self.postMessage(readyMsg);
+        break;
+      }
+
+      case 'SWITCH_CITY': {
+        currentCityId = message.payload.cityId;
+        activeIncident = null;
+        isMonsoonFloodedState = false;
+        lastOrigin = null;
+        lastDestination = null;
+
+        const generated =
+          currentCityId === 'delhi'
+            ? generateScaledDelhiNetwork(isPeakHourState)
+            : generateScaledBengaluruNetwork(isPeakHourState);
+
+        nodes = generated.nodes;
+        graph = generated.graph;
+        stats = generated.stats;
+        kdTree = new SpatialKDTree(nodes);
+        paretoSolver = new ParetoFrontierSolver(graph, kdTree);
+
+        const switchMsg: RoutingWorkerOutboundMessage = {
+          type: 'CITY_SWITCHED',
+          payload: {
+            cityId: currentCityId,
+            graphStats: stats,
+            nodeCount: nodes.length,
+            edgeCount: stats.totalEdges,
+            nodes,
+          },
+        };
+        self.postMessage(switchMsg);
         break;
       }
 

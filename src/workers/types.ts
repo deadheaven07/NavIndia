@@ -74,6 +74,14 @@ export interface GetStatsMessage {
   type: 'GET_STATS';
 }
 
+export interface SwitchCityMessage {
+  type: 'SWITCH_CITY';
+  id?: string;
+  payload: {
+    cityId: 'bengaluru' | 'delhi';
+  };
+}
+
 export type RoutingWorkerInboundMessage =
   | CalculateRouteMessage
   | SnapPointMessage
@@ -82,6 +90,7 @@ export type RoutingWorkerInboundMessage =
   | ClearIncidentMessage
   | TriggerMonsoonFloodMessage
   | ClearMonsoonFloodMessage
+  | SwitchCityMessage
   | GetStatsMessage;
 
 // Outbound messages (Worker -> Main Thread)
@@ -138,10 +147,22 @@ export interface WorkerErrorResponse {
   };
 }
 
+export interface CitySwitchedResponse {
+  type: 'CITY_SWITCHED';
+  payload: {
+    cityId: 'bengaluru' | 'delhi';
+    graphStats: GraphStats;
+    nodeCount: number;
+    edgeCount: number;
+    nodes: TransitNode[];
+  };
+}
+
 export type RoutingWorkerOutboundMessage =
   | WorkerReadyResponse
   | RouteResultResponse
   | SnapResultResponse
   | IncidentStatusResponse
   | FloodStatusResponse
+  | CitySwitchedResponse
   | WorkerErrorResponse;

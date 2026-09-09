@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Sparkles,
   Bot,
@@ -10,6 +10,8 @@ import {
   CloudRain,
   AlertTriangle,
   Zap,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { generateCopilotAdvice } from '../../services/gemini';
 import type { RouteOption, TriggerIncidentPayload } from '../../algorithms/types';
@@ -30,12 +32,50 @@ export const CommuteCopilotDrawer: React.FC<CommuteCopilotDrawerProps> = ({
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [adviceText, setAdviceText] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
+  const isMountedRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  const toggleSpeakAdvice = () => {
+    if (!('speechSynthesis' in window)) return;
+
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+
+    if (!adviceText) return;
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(adviceText);
+    utterance.rate = 1.0;
+
+    const voices = window.speechSynthesis.getVoices();
+    const indianVoice =
+      voices.find((v) => v.lang === 'en-IN') || voices.find((v) => v.lang.startsWith('en'));
+    if (indianVoice) utterance.voice = indianVoice;
+
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+
+    window.speechSynthesis.speak(utterance);
+  };
 
   // Fetch advice when selected route or environmental shockwaves change
   useEffect(() => {
     if (!selectedRoute) return;
 
-    let isMounted = true;
     const fetchAdvice = async () => {
       setIsLoading(true);
       try {
@@ -45,19 +85,16 @@ export const CommuteCopilotDrawer: React.FC<CommuteCopilotDrawerProps> = ({
           isPeakHour,
           isMonsoonFlooded
         );
-        if (isMounted) setAdviceText(text);
+        if (isMountedRef.current) setAdviceText(text);
       } catch (err) {
         console.error('[Copilot] Advice error:', err);
       } finally {
-        if (isMounted) setIsLoading(false);
+        if (isMountedRef.current) setIsLoading(false);
       }
     };
 
     fetchAdvice();
-    return () => {
-      isMounted = false;
-    };
-  }, [selectedRoute?.id, isPeakHour, activeIncident?.name, isMonsoonFlooded]);
+  }, [selectedRoute, activeIncident, isPeakHour, isMonsoonFlooded]);
 
   if (!selectedRoute) return null;
 
@@ -103,6 +140,23 @@ export const CommuteCopilotDrawer: React.FC<CommuteCopilotDrawerProps> = ({
             </div>
 
             <div className="flex items-center gap-1">
+              <button
+                onClick={toggleSpeakAdvice}
+                disabled={!adviceText || isLoading}
+                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                  isSpeaking
+                    ? 'text-emerald-400 bg-emerald-950/60 border border-emerald-600/50 animate-pulse'
+                    : 'text-slate-400 hover:text-sky-400 hover:bg-slate-800/80'
+                }`}
+                title={isSpeaking ? 'Stop Audio Narration' : 'Listen to Copilot Advice (Audio Narration)'}
+              >
+                {isSpeaking ? (
+                  <VolumeX className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <Volume2 className="w-3.5 h-3.5" />
+                )}
+              </button>
+
               <button
                 onClick={async () => {
                   setIsLoading(true);
